@@ -1,0 +1,267 @@
+// @vitest-environment node
+
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  SAMPLE_BRIDGE_ROOT,
+  addAnnouncement,
+  addMessage,
+  addRelease,
+  addTask,
+  createHandoff,
+  getAgentSessionRecovery,
+  initBridge,
+  launchAgentSession,
+  listAgentSessions,
+  listAnnouncements,
+  listReleases,
+  loadBridgeSnapshot,
+  regenerateContext,
+  startAgentSession,
+  stopAgentSession,
+  updateAnnouncement,
+  updateRelease,
+} from "./store";
+
+const tempDirs: string[] = [];
+
+async function createTempCopy() {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-store-"));
+  tempDirs.push(tempDir);
+  await cp(SAMPLE_BRIDGE_ROOT, tempDir, { recursive: true });
+  return tempDir;
+}
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
+describe("loadBridgeSnapshot", () => {
+  it("parses the bundled sample bridge dataset", async () => {
+    const snapshot = await loadBridgeSnapshot(SAMPLE_BRIDGE_ROOT);
+
+    expect(snapshot.bridge.projectName).toBe("AiBridge Workspace");
+    expect(snapshot.tasks).toHaveLength(7);
+    expect(snapshot.messages).toHaveLength(4);
+    expect(snapshot.handoffs).toHaveLength(3);
+    expect(snapshot.decisions).toHaveLength(3);
+    expect(snapshot.conventions).toHaveLength(5);
+    expect(snapshot.logs).toHaveLength(5);
+    expect(snapshot.releases).toHaveLength(1);
+    expect(snapshot.announcements).toHaveLength(1);
+    expect(snapshot.issues).toEqual([]);
+  });
+
+  it("skips invalid files and records validation issues", async () => {
+    const tempDir = await createTempCopy();
+    await writeFile(path.join(tempDir, "tasks", "invalid-task.json"), "{\"id\":123}\n", "utf8");
+
+    const snapshot = await loadBridgeSnapshot(tempDir);
+
+    expect(snapshot.tasks).toHaveLength(7);
+    expect(snapshot.issues.some((issue) => issue.includes("invalid-task.json"))).toBe(true);
+  });
+
+  it("serializes concurrent mutations without leaving invalid bridge state", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-concurrency-"));
+    tempDirs.push(tempDir);
+    await initBridge({
+      cwd: tempDir,
+      name: "Concurrency Demo",
+      agents: ["cursor", "claude"],
+    });
+
+    const root = path.join(tempDir, ".aibridge");
+
+    await Promise.all([
+      addTask(root, { title: "Task A", agentId: "cursor", status: "pending" }),
+      addTask(root, { title: "Task B", agentId: "claude", status: "in_progress" }),
+      addMessage(root, { fromAgentId: "cursor", toAgentId: "claude", content: "Concurrency check" }),
+      createHandoff(root, { fromAgentId: "cursor", toAgentId: "claude", description: "Continue from latest context" }),
+      regenerateContext(root),
+      regenerateContext(root),
+    ]);
+
+    const snapshot = await loadBridgeSnapshot(root);
+    const contextMarkdown = await readFile(path.join(root, "CONTEXT.md"), "utf8");
+    const rootEntries = await readdir(root);
+
+    expect(snapshot.tasks.some((task) => task.title === "Task A")).toBe(true);
+    expect(snapshot.tasks.some((task) => task.title === "Task B")).toBe(true);
+    expect(snapshot.messages.some((message) => message.content === "Concurrency check")).toBe(true);
+    expect(snapshot.handoffs.some((handoff) => handoff.description === "Continue from latest context")).toBe(true);
+    expect(snapshot.issues).toEqual([]);
+    expect(contextMarkdown).toContain("## Task Summary");
+    expect(rootEntries.some((entry) => entry.endsWith(".tmp"))).toBe(false);
+    expect(rootEntries).not.toContain(".aibridge.write.lock");
+  });
+
+  it("supports release and announcement create/update flows", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-release-center-"));
+    tempDirs.push(tempDir);
+    await initBridge({
+      cwd: tempDir,
+      name: "Release Center Demo",
+      agents: ["cursor", "claude"],
+    });
+
+    const root = path.join(tempDir, ".aibridge");
+    const release = await addRelease(root, {
+      version: "1.1.0",
+      title: "Release Center",
+      summary: "Adds real release support.",
+      createdBy: "cursor",
+      highlights: ["Published release timeline"],
+    });
+    const announcement = await addAnnouncement(root, {
+      title: "Release Center live",
+      body: "Draft announcement for admins.",
+      audience: "all",
+      severity: "info",
+      createdBy: "cursor",
+    });
+
+    const publishedRelease = await updateRelease(root, release.id, {
+      status: "published",
+      createdBy: "cursor",
+      tags: ["release-center"],
+    });
+    const pinnedAnnouncement = await updateAnnouncement(root, announcement.id, {
+      status: "pinned",
+      severity: "success",
+      createdBy: "cursor",
+    });
+
+    expect(publishedRelease.status).toBe("published");
+    expect(publishedRelease.publishedAt).toBeTruthy();
+    expect(publishedRelease.tags).toContain("release-center");
+    expect(pinnedAnnouncement.status).toBe("pinned");
+    expect(pinnedAnnouncement.publishedAt).toBeTruthy();
+  });
+
+  it("shows only published release center content to viewers", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-release-visibility-"));
+    tempDirs.push(tempDir);
+    await initBridge({
+      cwd: tempDir,
+      name: "Visibility Demo",
+      agents: ["cursor"],
+    });
+
+    const root = path.join(tempDir, ".aibridge");
+    await addRelease(root, {
+      version: "2.0.0-beta",
+      title: "Beta",
+      summary: "Internal draft release.",
+      status: "draft",
+      createdBy: "cursor",
+    });
+    await addRelease(root, {
+      version: "1.0.0",
+      title: "Stable",
+      summary: "Public release.",
+      status: "published",
+      createdBy: "cursor",
+    });
+
+    await addAnnouncement(root, {
+      title: "Internal note",
+      body: "Admins only draft",
+      status: "draft",
+      audience: "internal",
+      createdBy: "cursor",
+    });
+    await addAnnouncement(root, {
+      title: "Public note",
+      body: "Live now",
+      status: "published",
+      audience: "all",
+      createdBy: "cursor",
+    });
+
+    const adminReleases = await listReleases(root, { access: { role: "admin" } });
+    const viewerReleases = await listReleases(root, { access: { role: "viewer" } });
+    const adminAnnouncements = await listAnnouncements(root, { access: { role: "admin" } });
+    const viewerAnnouncements = await listAnnouncements(root, { access: { role: "viewer" } });
+
+    expect(adminReleases).toHaveLength(2);
+    expect(viewerReleases.map((release) => release.version)).toEqual(["1.0.0"]);
+    expect(adminAnnouncements).toHaveLength(2);
+    expect(viewerAnnouncements.map((announcement) => announcement.title)).toEqual(["Public note"]);
+  });
+
+  it("tracks launch handshake lifecycle, stale detection, and recovery prompts", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-session-lifecycle-"));
+    tempDirs.push(tempDir);
+    await initBridge({
+      cwd: tempDir,
+      name: "Session Demo",
+      agents: ["cursor", "codex"],
+    });
+
+    const root = path.join(tempDir, ".aibridge");
+    await addTask(root, {
+      title: "Land the reliability layer",
+      agentId: "cursor",
+      status: "in_progress",
+    });
+    await addMessage(root, {
+      fromAgentId: "codex",
+      toAgentId: "cursor",
+      content: "Please confirm the recovery prompt flow.",
+      severity: "warning",
+    });
+    await createHandoff(root, {
+      fromAgentId: "codex",
+      toAgentId: "cursor",
+      description: "Resume after the watchdog test.",
+    });
+
+    const launched = await launchAgentSession(root, {
+      agentId: "cursor",
+      toolKind: "cursor",
+      launchSource: "cli",
+    });
+    expect(launched.status).toBe("pending");
+    expect(launched.instructions.prompt).toContain("Acknowledge this session");
+
+    const started = await startAgentSession(root, launched.id);
+    expect(started.status).toBe("active");
+    expect(started.currentTaskIds.length).toBeGreaterThan(0);
+
+    const sessionPath = path.join(root, "sessions", `${launched.id}.json`);
+    const rawSession = JSON.parse(await readFile(sessionPath, "utf8")) as Record<string, unknown>;
+    rawSession.lastHeartbeatAt = "2026-01-01T00:00:00.000Z";
+    rawSession.lastActivityAt = "2026-01-01T00:00:00.000Z";
+    await writeFile(sessionPath, `${JSON.stringify(rawSession, null, 2)}\n`, "utf8");
+
+    const logPath = path.join(root, "logs", `${new Date().toISOString().slice(0, 10)}.jsonl`);
+    const agedLogLines = (await readFile(logPath, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        return JSON.stringify({
+          ...entry,
+          timestamp: "2026-01-01T00:00:00.000Z",
+        });
+      });
+    await writeFile(logPath, `${agedLogLines.join("\n")}\n`, "utf8");
+
+    const staleSessions = await listAgentSessions(root, { status: "stale" });
+    expect(staleSessions).toHaveLength(1);
+    expect(staleSessions[0].recovery.recommended).toBe(true);
+    expect(staleSessions[0].recovery.prompt).toContain("Resume after the watchdog test");
+    expect(staleSessions[0].recovery.prompt).toContain("Please confirm the recovery prompt flow.");
+
+    const recovered = await getAgentSessionRecovery(root, launched.id);
+    expect(recovered.recovery.prompt).toContain("Land the reliability layer");
+
+    const stopped = await stopAgentSession(root, launched.id, { reason: "Agent paused for manual review." });
+    expect(stopped.status).toBe("stopped");
+    expect(stopped.recovery.reason).toContain("manual review");
+  });
+});

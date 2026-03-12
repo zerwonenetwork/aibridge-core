@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aibridge.dev/schemas/message.schema.json",
+  "title": "AiBridge Agent Message",
+  "type": "object",
+  "required": ["id", "fromAgentId", "content", "timestamp"],
+  "properties": {
+    "id": { "type": "string" },
+    "fromAgentId": { "type": "string" },
+    "toAgentId": { "type": "string" },
+    "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+    "content": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "acknowledged": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aibridge.dev/schemas/convention.schema.json",
+  "title": "AiBridge Convention",
+  "type": "object",
+  "required": ["id", "rule", "addedAt"],
+  "properties": {
+    "id": { "type": "string" },
+    "rule": { "type": "string", "minLength": 1 },
+    "addedAt": { "type": "string", "format": "date-time" },
+    "addedBy": { "type": "string" },
+    "category": { "type": "string", "enum": ["code-style", "architecture", "testing", "documentation", "workflow", "other"] }
+  },
+  "additionalProperties": false
+}

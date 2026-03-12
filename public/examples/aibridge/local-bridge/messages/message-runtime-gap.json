@@ -1,0 +1,8 @@
+{
+  "id": "message-runtime-gap",
+  "fromAgentId": "windsurf",
+  "severity": "critical",
+  "content": "The dashboard still needs a non-mock bridge source that survives refreshes.",
+  "timestamp": "2026-03-08T14:12:00Z",
+  "acknowledged": false
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aibridge.dev/schemas/handoff.schema.json",
+  "title": "AiBridge Handoff",
+  "type": "object",
+  "required": ["id", "fromAgentId", "toAgentId", "description", "timestamp"],
+  "properties": {
+    "id": { "type": "string" },
+    "fromAgentId": { "type": "string" },
+    "toAgentId": { "type": "string" },
+    "description": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "relatedTaskIds": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

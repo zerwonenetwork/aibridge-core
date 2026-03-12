@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aibridge.dev/schemas/task.schema.json",
+  "title": "AiBridge Task",
+  "type": "object",
+  "required": ["id", "title", "status", "priority", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pending", "in_progress", "done"] },
+    "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+    "agentId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
