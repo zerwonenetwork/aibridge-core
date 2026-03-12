@@ -1,8 +1,27 @@
 # AiBridge Core
 
-**Local-first coordination layer for multi-agent AI development.**
+**Local-first coordination standard and reference implementation for AI workspaces.**
 
-AiBridge gives every AI coding agent in your project a shared context directory — `.aibridge` — that tracks tasks, messages, conventions, handoffs, decisions, and agent sessions. No hosted backend required.
+AiBridge creates a shared `.aibridge` directory in your repo so multiple AI coding agents can coordinate through the same **tasks, messages, conventions, handoffs, decisions, logs, and sessions** — without a hosted backend.
+
+**Includes**
+- **`.aibridge` protocol** (file formats + conventions)
+- **CLI** for tasks/messages/handoffs/decisions/conventions/logs
+- **Local service** (HTTP + SSE) backing the UI/automation
+- **Local dashboard** reference UI
+- **Setup engine** (templates → starter plan)
+- **Capture** (git hooks + watcher)
+- **Agent sessions** (launch/heartbeat/recover/stop)
+
+**Quick demo**
+
+```bash
+# init a bridge in your repo
+npx aibridge init --name "My Project" --agents cursor,claude,codex
+
+# run the local dashboard + service
+npm run dev
+```
 
 ---
 

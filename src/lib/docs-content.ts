@@ -562,7 +562,7 @@ The root configuration file for an AiBridge project.
 
 \`\`\`json
 {
-  "$schema": "https://aibridge.dev/schemas/bridge.schema.json",
+  "$schema": "https://example.com/aibridge/schemas/bridge.schema.json",
   "schemaVersion": "1.0",
   "projectName": "My Project",
   "createdAt": "2026-03-01T00:00:00Z",
@@ -615,7 +615,7 @@ Each task is stored as a JSON file in \`.aibridge/tasks/\`.
 
 \`\`\`json
 {
-  "$schema": "https://aibridge.dev/schemas/task.schema.json",
+  "$schema": "https://example.com/aibridge/schemas/task.schema.json",
   "id": "task-build-auth",
   "title": "Build authentication flow",
   "status": "in_progress",
@@ -695,7 +695,7 @@ Each handoff is a JSON file in \`.aibridge/handoffs/\`.
 
 \`\`\`json
 {
-  "$schema": "https://aibridge.dev/schemas/handoff.schema.json",
+  "$schema": "https://example.com/aibridge/schemas/handoff.schema.json",
   "id": "handoff-ui-to-runtime",
   "fromAgentId": "cursor",
   "toAgentId": "codex",
@@ -735,7 +735,7 @@ Each message is a JSON file in \`.aibridge/messages/\`.
 
 \`\`\`json
 {
-  "$schema": "https://aibridge.dev/schemas/message.schema.json",
+  "$schema": "https://example.com/aibridge/schemas/message.schema.json",
   "id": "msg-deploy-freeze",
   "fromAgentId": "claude",
   "toAgentId": "all",
@@ -771,7 +771,7 @@ Decisions are stored as JSON files in \`.aibridge/decisions/\`.
 
 \`\`\`json
 {
-  "$schema": "https://aibridge.dev/schemas/decision.schema.json",
+  "$schema": "https://example.com/aibridge/schemas/decision.schema.json",
   "id": "decision-use-supabase",
   "title": "Use Supabase for persistence and auth",
   "summary": "Supabase provides auth, real-time, and PostgreSQL out of the box, reducing infrastructure setup time significantly.",

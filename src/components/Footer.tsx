@@ -38,9 +38,7 @@ const Footer = () => {
           <span className="text-xs text-muted-foreground/50">by ZerwOne</span>
         </div>
         <div className="flex items-center gap-6">
-          <a href="https://github.com/zerwone/aibridge" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground/50 hover:text-primary transition-colors font-display">GitHub</a>
-          <a href="https://aibridge.dev" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground/50 hover:text-primary transition-colors font-display">aibridge.dev</a>
-          <a href="https://www.npmjs.com/package/@zerwone/aibridge" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground/50 hover:text-primary transition-colors font-display">npm</a>
+          <a href="https://github.com/zerwone/aibridge-core" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground/50 hover:text-primary transition-colors font-display">GitHub</a>
         </div>
         <p className="text-xs text-muted-foreground/40 font-display">
           MIT License

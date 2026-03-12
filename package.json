@@ -3,7 +3,28 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "AiBridge Core — local-first coordination layer for multi-agent AI development",
+  "description": "Local-first coordination standard and reference implementation for AI workspaces.",
+  "license": "MIT",
+  "author": "ZerwOne",
+  "keywords": [
+    "aibridge",
+    "ai",
+    "cli",
+    "developer-tools",
+    "local-first",
+    "typescript",
+    "workflow",
+    "multi-agent",
+    "protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zerwone/aibridge-core.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zerwone/aibridge-core/issues"
+  },
+  "homepage": "https://github.com/zerwone/aibridge-core#readme",
   "scripts": {
     "aibridge": "tsx aibridge/cli/bin/aibridge.ts",
     "aibridge:service": "tsx aibridge/services/local/bin/aibridge-local-service.ts",
