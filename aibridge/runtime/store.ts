@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -68,8 +69,22 @@ const LOCK_POLL_INTERVAL_MS = 50;
 const LOCK_STALE_MS = 30_000;
 const LOCK_TIMEOUT_MS = 10_000;
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
-const PROTOCOL_TEMPLATES_ROOT = path.resolve(RUNTIME_DIR, "../protocol/templates");
-export const SAMPLE_BRIDGE_ROOT = path.resolve(RUNTIME_DIR, "../../public/examples/aibridge/local-bridge");
+
+function resolveFirstExistingPath(candidates: string[]) {
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
+const PROTOCOL_TEMPLATES_ROOT = resolveFirstExistingPath([
+  path.resolve(RUNTIME_DIR, "../protocol/templates"),
+  path.resolve(RUNTIME_DIR, "aibridge/protocol/templates"),
+]);
+export const SAMPLE_BRIDGE_ROOT = resolveFirstExistingPath([
+  path.resolve(RUNTIME_DIR, "../../public/examples/aibridge/local-bridge"),
+  path.resolve(RUNTIME_DIR, "public/examples/aibridge/local-bridge"),
+]);
 
 const AGENT_LABELS: Record<AibridgeAgentKind, string> = {
   cursor: "Cursor",

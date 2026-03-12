@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "projectName": "AiBridge Workspace",
+  "createdAt": "2026-03-05T09:00:00Z",
+  "agents": [
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "kind": "cursor",
+      "configPath": ".aibridge/agents/cursor.md"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "kind": "claude",
+      "configPath": ".aibridge/agents/claude.md"
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "kind": "codex",
+      "configPath": ".aibridge/agents/codex.md"
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "kind": "windsurf",
+      "configPath": ".aibridge/agents/windsurf.md"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "task-sample-data",
+  "title": "Seed a realistic sample bridge dataset",
+  "status": "pending",
+  "priority": "medium",
+  "agentId": "windsurf",
+  "createdAt": "2026-03-06T12:30:00Z",
+  "updatedAt": "2026-03-08T13:15:00Z"
+}

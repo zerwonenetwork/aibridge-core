@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
   AibridgeAgent,
@@ -50,7 +51,10 @@ function summarizeRole(agent: AibridgeAgent, snapshot: AibridgeBridgeSnapshot) {
 }
 
 export function buildCliCommandHint() {
-  return `node ${CLI_ENTRY_PATH.replace(/\\/g, "/")} `;
+  if (existsSync(CLI_ENTRY_PATH)) {
+    return `node ${CLI_ENTRY_PATH.replace(/\\/g, "/")} `;
+  }
+  return "aibridge ";
 }
 
 export function buildLaunchInstructionSet(

@@ -49,7 +49,7 @@ npm install
 ### 2. Initialize a workspace
 
 ```bash
-npm run aibridge init --name "My Project" --agents cursor,claude,codex
+npm run aibridge -- init --name "My Project" --agents cursor,claude,codex
 ```
 
 This creates the `.aibridge` directory with starter context, conventions, and agent instructions.
@@ -74,6 +74,13 @@ The CLI is the primary interface for interacting with the bridge.
 
 ```bash
 npm run aibridge -- <command>
+```
+
+To use it as a published npm CLI:
+
+```bash
+npm i -g @zerwone/aibridge-core
+aibridge --help
 ```
 
 ### Core commands

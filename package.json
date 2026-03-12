@@ -1,11 +1,27 @@
 {
-  "name": "aibridge-core",
-  "private": true,
+  "name": "@zerwone/aibridge-core",
+  "private": false,
   "version": "0.1.0",
   "type": "module",
   "description": "Local-first coordination standard and reference implementation for AI workspaces.",
   "license": "MIT",
   "author": "ZerwOne",
+  "bin": {
+    "aibridge": "dist-cli/aibridge.js"
+  },
+  "files": [
+    "dist-cli",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "aibridge",
     "ai",
@@ -27,14 +43,19 @@
   "homepage": "https://github.com/zerwone/aibridge-core#readme",
   "scripts": {
     "aibridge": "tsx aibridge/cli/bin/aibridge.ts",
+    "aibridge:bin": "node dist-cli/aibridge.js",
     "aibridge:service": "tsx aibridge/services/local/bin/aibridge-local-service.ts",
     "dev": "vite",
-    "build": "vite build",
+    "build:web": "vite build",
+    "build:cli": "node scripts/build-cli.mjs",
+    "build": "npm run build:web && npm run build:cli",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build:cli && npm run typecheck && npm run test",
+    "pack:check": "npm pack --dry-run"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -108,6 +129,7 @@
     "jsdom": "^20.0.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
+    "tsup": "^8.5.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19",

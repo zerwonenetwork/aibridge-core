@@ -1,0 +1,25 @@
+{
+  "id": "release-v1-0-0",
+  "version": "1.0.0",
+  "title": "AiBridge Local V1",
+  "summary": "First stable local-first release with runtime, local service, dashboard, CLI, and auto-capture.",
+  "status": "published",
+  "publishedAt": "2026-03-09T12:00:00.000Z",
+  "highlights": [
+    "Local dashboard backed by real .aibridge data",
+    "Standalone local service with safe attach behavior",
+    "Auto-capture via git hooks and workspace watcher"
+  ],
+  "breakingChanges": [],
+  "upgradeNotes": [
+    "Run `npm run aibridge -- capture install-hooks` after upgrading."
+  ],
+  "tags": [
+    "local",
+    "v1",
+    "stable"
+  ],
+  "createdBy": "cursor",
+  "createdAt": "2026-03-09T11:45:00.000Z",
+  "updatedAt": "2026-03-09T12:00:00.000Z"
+}
