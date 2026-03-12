@@ -324,16 +324,6 @@ export function createSetupResult(questionnaireInput: Partial<SetupQuestionnaire
       initialize: true,
       setupMetadata,
     },
-    hostedProject: {
-      slug: slugifyProjectName(brief.projectName),
-      name: brief.projectName,
-      description: brief.summary,
-      tags: uniqueList([template.id, ...brief.preferredStack]),
-      templateId: template.id,
-      setupBrief: brief,
-      setupPreferences: preferences,
-      setupPlan: plan,
-    },
     generatedAt,
   };
 }

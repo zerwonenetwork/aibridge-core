@@ -183,16 +183,6 @@ export interface SetupResult {
     initialize: boolean;
     setupMetadata: BridgeSetupMetadata;
   };
-  hostedProject: {
-    slug: string;
-    name: string;
-    description: string;
-    tags: string[];
-    templateId: SetupTemplateId;
-    setupBrief: ProjectBrief;
-    setupPreferences: SetupPreferences;
-    setupPlan: GeneratedProjectPlan;
-  };
   generatedAt: string;
 }
 
@@ -200,18 +190,6 @@ export interface SetupPlanPreview {
   template: SetupTemplate;
   questionnaire: SetupQuestionnaire;
   plan: GeneratedProjectPlan;
-}
-
-export interface CreateHostedProjectFromSetupOptions {
-  visibility?: "private" | "internal" | "public";
-  tags?: string[];
-  localBridgeHint?: {
-    workspaceLabel?: string;
-    localBridgeRoot?: string;
-    connected?: boolean;
-    lastSeenAt?: string;
-    metadata?: Record<string, unknown>;
-  };
 }
 
 export interface LocalSetupInitializationOptions {

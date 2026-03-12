@@ -130,22 +130,6 @@ function createResult(projectName: string): SetupResult {
         createdAt: "2026-03-11T00:00:00.000Z",
       },
     },
-    hostedProject: {
-      slug: "demo",
-      name: projectName,
-      description: `${projectName} summary`,
-      tags: ["web-app"],
-      templateId: "web-app",
-      setupBrief: plan.brief,
-      setupPreferences: {
-        preferredStack: ["react", "typescript"],
-        priorities: ["speed"],
-        agentMode: "multi-agent",
-        hardConstraints: [],
-        existingRepo: false,
-      },
-      setupPlan: plan,
-    },
     generatedAt: "2026-03-11T00:00:00.000Z",
   };
 }

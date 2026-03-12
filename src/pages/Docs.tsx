@@ -275,8 +275,7 @@ export default function DocsPage() {
   useSEOHead({
     title: "Documentation — AiBridge | Local-First AI Agent Coordination",
     description: "Complete documentation for AiBridge — the .aibridge protocol, CLI commands, local service, dashboard, auto-capture, and multi-agent coordination.",
-    canonical: "https://aibridge.dev/docs",
-    ogImage: "https://aibridge.dev/og-image.png",
+    ogImage: "/og-image.png",
   });
 
   const [activeSection, setActiveSection] = useState("introduction");

@@ -12,8 +12,7 @@ const Index = () => {
   useSEOHead({
     title: "AiBridge — Local-First AI Agent Coordination for Multi-Agent Development",
     description: "Coordinate multiple AI coding agents from a single .aibridge directory. Shared context, task tracking, conventions, and handoffs across Cursor, Claude Code, Codex, Copilot, and Windsurf.",
-    canonical: "https://aibridge.dev/",
-    ogImage: "https://aibridge.dev/og-image.png",
+    ogImage: "/og-image.png",
   });
 
   return (
