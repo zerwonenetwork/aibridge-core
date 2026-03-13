@@ -1,9 +1,0 @@
-{
-  "id": "message-context-pass",
-  "fromAgentId": "codex",
-  "toAgentId": "claude",
-  "severity": "info",
-  "content": "The context compiler skeleton is ready. The CLI can call the shared runtime now.",
-  "timestamp": "2026-03-08T14:24:00Z",
-  "acknowledged": true
-}

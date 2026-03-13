@@ -1,9 +1,0 @@
-{
-  "id": "message-tests-coverage",
-  "fromAgentId": "cursor",
-  "toAgentId": "codex",
-  "severity": "info",
-  "content": "Add at least one dashboard-path test once the hook stops relying on mock data.",
-  "timestamp": "2026-03-08T14:31:00Z",
-  "acknowledged": true
-}

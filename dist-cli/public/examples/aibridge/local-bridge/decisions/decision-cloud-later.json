@@ -1,7 +1,0 @@
-{
-  "id": "decision-cloud-later",
-  "title": "Defer cloud sync and auth until the local vertical slice is stable",
-  "summary": "The local runtime, CLI, and context compiler should stabilize before team sync and auth layers are introduced.",
-  "timestamp": "2026-03-06T17:00:00Z",
-  "status": "proposed"
-}
