@@ -228,6 +228,7 @@ export interface AibridgeAgentSession {
   stoppedAt?: string;
   stoppedReason?: string;
   failureReason?: string;
+  instructions: AibridgeLaunchInstructionSet;
   recovery?: AibridgeAgentRecoveryState;
 }
 
