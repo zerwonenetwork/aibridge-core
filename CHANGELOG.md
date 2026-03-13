@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.6 — 2026-03-13
+
+### Changed
+- No code changes; release to verify npm Trusted Publisher (CI) publish flow.
+
 ## 0.1.5 — 2026-03-13
 
 ### Changed
