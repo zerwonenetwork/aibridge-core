@@ -14,6 +14,10 @@
   <a href="https://github.com/zerwonenetwork/aibridge-core"><img src="https://img.shields.io/badge/GitHub-zerwonenetwork%2Faibridge--core-24292e?logo=github" alt="GitHub repo" /></a>
 </p>
 
+<p align="center">
+  <code>npm i -g @zerwonenetwork/aibridge-core</code>
+</p>
+
 ---
 
 AiBridge Core creates a shared **`.aibridge`** directory in your repo so multiple AI coding agents can coordinate through the same **tasks, messages, handoffs, conventions, decisions, logs, context, capture state, and agent sessions**—without requiring a hosted backend.
@@ -204,6 +208,10 @@ npm run aibridge -- agent launch --agent cursor --tool cursor
 ## Dashboard
 
 AiBridge Core ships a **local dashboard** reference app.
+
+<p align="center">
+  <img src="public/og-image--.png" alt="AiBridge Core dashboard preview" width="880" />
+</p>
 
 **Views:** Overview · Tasks · Activity · Messages · Agents · Conventions · Decisions · Settings
 
