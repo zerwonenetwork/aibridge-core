@@ -1,0 +1,12 @@
+{
+  "id": "announcement-local-v1",
+  "title": "Local V1 is now available",
+  "body": "AiBridge Local V1 is ready for local-first teams. Runtime, dashboard, CLI, and capture are all available without cloud sync.",
+  "status": "pinned",
+  "audience": "all",
+  "severity": "success",
+  "publishedAt": "2026-03-09T12:05:00.000Z",
+  "createdBy": "cursor",
+  "createdAt": "2026-03-09T12:00:00.000Z",
+  "updatedAt": "2026-03-09T12:05:00.000Z"
+}
