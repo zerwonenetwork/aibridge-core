@@ -2,20 +2,20 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+We provide security updates for the current minor line. While we are in 0.x, we support the latest 0.x release.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 0.1.x   | :white_check_mark: |
+| < 0.1   | :x:                |
+
+After we reach 1.0, we will support the latest major and previous major line with security fixes.
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+**Do not** report security vulnerabilities in public issues.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- **Where to report:** Open a [GitHub Security Advisory](https://github.com/zerwonenetwork/aibridge-core/security/advisories/new) for this repository, or email the maintainers if you need a private channel (see CONTRIBUTING.md or repo description for contact).
+- **What to include:** Description of the vulnerability, steps to reproduce, and impact. If you have a suggested fix, you can include it.
+- **What to expect:** We aim to acknowledge within 5 business days. If we accept the report, we will work on a fix and coordinate disclosure. If we decline, we will explain why.
+- **Recognition:** We are happy to credit you in the advisory and release notes unless you prefer to remain anonymous.
