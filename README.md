@@ -1,52 +1,88 @@
-# AiBridge Core
+<p align="center">
+  <img src="public/og-image.png" alt="AiBridge Core — Local-first coordination for AI workspaces" width="800" />
+</p>
 
-**Open-core local engine and reference standard for AI workspace coordination.**
+<h1 align="center">AiBridge Core</h1>
 
-AiBridge Core creates a shared `.aibridge` directory in your repo so multiple AI coding agents can coordinate through the same **tasks, messages, handoffs, conventions, decisions, logs, context, capture state, and agent sessions** without requiring a hosted backend.
+<p align="center">
+  <strong>Open-core local engine and reference standard for AI workspace coordination.</strong>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@zerwonenetwork/aibridge-core"><img src="https://img.shields.io/npm/v/@zerwonenetwork/aibridge-core.svg" alt="npm version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://github.com/zerwonenetwork/aibridge-core"><img src="https://img.shields.io/badge/GitHub-zerwonenetwork%2Faibridge--core-24292e?logo=github" alt="GitHub repo" /></a>
+</p>
+
+---
+
+AiBridge Core creates a shared **`.aibridge`** directory in your repo so multiple AI coding agents can coordinate through the same **tasks, messages, handoffs, conventions, decisions, logs, context, capture state, and agent sessions**—without requiring a hosted backend.
 
 This repository is the **local-first open-core foundation**:
-- `.aibridge` protocol and reference implementation
-- CLI
-- local HTTP/SSE service
-- local dashboard
-- template-driven setup engine
-- capture subsystem (git hooks + watcher)
-- agent launch/heartbeat/recovery reliability layer
 
-Hosted commercial control-plane features live in a separate product repository and are **not** included here.
+| Area | What’s included |
+|------|------------------|
+| **Protocol** | `.aibridge` reference implementation |
+| **CLI** | Full command set for setup, tasks, messages, capture, agents |
+| **Service** | Local HTTP/SSE at `http://127.0.0.1:4545` |
+| **Dashboard** | Local reference UI at `/dashboard` |
+| **Setup** | Template-driven engine + onboarding wizard |
+| **Capture** | Git hooks + file watcher |
+| **Agents** | Launch, heartbeat, recovery reliability layer |
+
+> **Note:** Hosted commercial control-plane features live in a separate product repository and are **not** included here.
+
+---
+
+## Table of contents
+
+- [What AiBridge Core includes](#what-aibridge-core-includes)
+- [What `.aibridge` is](#what-aibridge-is)
+- [Quick Start](#quick-start)
+- [CLI](#cli)
+- [Dashboard](#dashboard)
+- [Setup Engine](#setup-engine)
+- [Capture](#capture-subsystem)
+- [Agent reliability](#agent-reliability-layer)
+- [Local service](#local-service)
+- [Repository structure](#repository-structure)
+- [Scripts](#scripts)
+- [What this repo is not](#what-this-repo-is-not)
+- [Publishing (maintainers)](#publishing-maintainers)
+- [License](#license)
 
 ---
 
 ## What AiBridge Core includes
 
-- **`.aibridge` protocol** for local coordination state
-- **CLI** for setup, tasks, messages, handoffs, decisions, conventions, logs, context, capture, and agent sessions
-- **Local dashboard** at `/dashboard`
-- **Local service** at `http://127.0.0.1:4545`
-- **Setup engine** with reusable templates and generated starter plans
-- **Capture** with git hooks and a file watcher
-- **Agent reliability** through launch prompts, session tracking, heartbeats, stale detection, and recovery prompts
+- **`.aibridge` protocol** — local coordination state and schema
+- **CLI** — setup, tasks, messages, handoffs, decisions, conventions, logs, context, capture, agent sessions
+- **Local dashboard** — at `/dashboard` (overview, tasks, activity, messages, agents, conventions, decisions, settings)
+- **Local service** — at `http://127.0.0.1:4545` (HTTP + SSE)
+- **Setup engine** — reusable templates and generated starter plans
+- **Capture** — git hooks + file watcher for automatic activity capture
+- **Agent reliability** — launch prompts, session lifecycle, heartbeats, stale detection, recovery prompts
 
 ---
 
 ## What `.aibridge` is
 
-The `.aibridge` directory lives at the root of a project and acts as the local source of truth for AI agent coordination.
+The **`.aibridge`** directory lives at the root of a project and is the local source of truth for AI agent coordination.
 
-Typical contents:
-
-- `bridge.json` — bridge metadata and setup metadata
-- `CONTEXT.md` — auto-generated current context for agents
-- `CONVENTIONS.md` — human-readable conventions summary
-- `agents/` — per-agent instruction files
-- `tasks/` — task board state
-- `messages/` — inter-agent messages
-- `handoffs/` — agent-to-agent handoffs
-- `decisions/` — architectural/product decisions
-- `conventions/` — structured conventions
-- `logs/` — activity logs
-- `capture/` — watcher/hook state
-- `sessions/` — agent launch and recovery state
+| Path | Purpose |
+|------|---------|
+| `bridge.json` | Bridge and setup metadata |
+| `CONTEXT.md` | Auto-generated current context for agents |
+| `CONVENTIONS.md` | Human-readable conventions summary |
+| `agents/` | Per-agent instruction files |
+| `tasks/` | Task board state |
+| `messages/` | Inter-agent messages |
+| `handoffs/` | Agent-to-agent handoffs |
+| `decisions/` | Architectural/product decisions |
+| `conventions/` | Structured conventions |
+| `logs/` | Activity logs |
+| `capture/` | Watcher/hook state |
+| `sessions/` | Agent launch and recovery state |
 
 ---
 
@@ -60,19 +96,19 @@ npm install
 
 ### 2. Initialize a workspace
 
-Interactive:
+**Interactive:**
 
 ```bash
 npm run aibridge -- init --interactive
 ```
 
-Template-driven:
+**Template-driven:**
 
 ```bash
 npm run aibridge -- init --template web-app --name "My Project" --description "Ship the first working slice" --stack react,typescript --multi-agent
 ```
 
-Classic direct init:
+**Classic direct init:**
 
 ```bash
 npm run aibridge -- init --name "My Project" --agents cursor,claude,codex
@@ -96,7 +132,7 @@ npm run dev
 
 Navigate to:
 
-```text
+```
 http://localhost:8080/dashboard
 ```
 
@@ -108,13 +144,13 @@ If no bridge is found, the dashboard can launch the same setup engine used by th
 
 The CLI is the primary power-user and automation interface.
 
-Run locally from this repo:
+**Run locally from this repo:**
 
 ```bash
 npm run aibridge -- <command>
 ```
 
-Or after publishing/installing:
+**Or after installing from npm:**
 
 ```bash
 npm i -g @zerwonenetwork/aibridge-core
@@ -124,14 +160,14 @@ aibridge --help
 ### Core command groups
 
 | Group | Examples |
-|---|---|
-| Setup | `init`, `init --interactive`, `setup plan` |
-| Local runtime | `status`, `context generate`, `serve` |
-| Tasks | `task add`, `task list`, `task update`, `task done` |
-| Messages | `message add`, `message list`, `message ack` |
-| Coordination | `handoff create`, `decision add`, `convention set`, `log add` |
-| Capture | `capture install-hooks`, `capture watch`, `capture status`, `capture stop` |
-| Agent reliability | `agent launch`, `agent start`, `agent heartbeat`, `agent stop`, `agent recover`, `agent status` |
+|-------|----------|
+| **Setup** | `init`, `init --interactive`, `setup plan` |
+| **Local runtime** | `status`, `context generate`, `serve` |
+| **Tasks** | `task add`, `task list`, `task update`, `task done` |
+| **Messages** | `message add`, `message list`, `message ack` |
+| **Coordination** | `handoff create`, `decision add`, `convention set`, `log add` |
+| **Capture** | `capture install-hooks`, `capture watch`, `capture status`, `capture stop` |
+| **Agent reliability** | `agent launch`, `agent start`, `agent heartbeat`, `agent stop`, `agent recover`, `agent status` |
 
 ### Examples
 
@@ -160,60 +196,34 @@ npm run aibridge -- agent launch --agent cursor --tool cursor
 
 ### Notes
 
-- `release` and `announcement` management are **not** part of AiBridge Core CLI. Those are handled by hosted/admin UI surfaces in the separate commercial product.
-- `sync` is intentionally **not implemented** here. AiBridge Core is local-first and does not ship full cloud sync.
+- **`release`** and **`announcement`** are not part of AiBridge Core CLI; they are handled by the separate commercial product.
+- **`sync`** is intentionally not implemented; AiBridge Core is local-first and does not ship full cloud sync.
 
 ---
 
 ## Dashboard
 
-AiBridge Core ships a local dashboard reference app.
+AiBridge Core ships a **local dashboard** reference app.
 
-Current local views:
-- **Overview**
-- **Tasks**
-- **Activity**
-- **Messages**
-- **Agents**
-- **Conventions**
-- **Decisions**
-- **Settings**
+**Views:** Overview · Tasks · Activity · Messages · Agents · Conventions · Decisions · Settings
 
-The dashboard uses the local service and reads local `.aibridge` state. It does **not** include the hosted `/app` control plane.
+The dashboard uses the local service and reads local `.aibridge` state. It does **not** include a hosted `/app` control plane.
 
-When no bridge is available, the local dashboard can:
-- open sample bridge data
-- point at an existing local bridge
-- launch a lightweight setup flow that uses the shared setup engine
+When no bridge is available, the dashboard can:
+
+- Open sample bridge data
+- Point at an existing local bridge
+- Launch a lightweight setup flow using the shared setup engine
 
 ---
 
 ## Setup Engine
 
-AiBridge Core includes a shared setup engine used by:
-- CLI
-- local dashboard onboarding
-- local service setup endpoints
+A shared setup engine is used by the **CLI**, **local dashboard onboarding**, and **local service** setup endpoints.
 
-Supported templates:
-- `web-app`
-- `api-backend`
-- `mobile-app`
-- `landing-page`
-- `ai-automation`
-- `research-docs`
-- `empty`
+**Templates:** `web-app` · `api-backend` · `mobile-app` · `landing-page` · `ai-automation` · `research-docs` · `empty`
 
-The setup engine generates:
-- project brief
-- starter roles
-- starter tasks
-- starter conventions
-- definition of done
-- kickoff coordination
-- initial local bridge state
-
-Example:
+**Generated:** project brief, starter roles/tasks/conventions, definition of done, kickoff coordination, initial bridge state.
 
 ```bash
 npm run aibridge -- setup plan --template landing-page --name "Marketing Site" --description "Ship a strong narrative landing page"
@@ -223,15 +233,12 @@ npm run aibridge -- setup plan --template landing-page --name "Marketing Site" -
 
 ## Capture subsystem
 
-AiBridge Core can capture local development activity automatically.
+Automatic capture of local development activity:
 
-Features:
-- **git hooks** for commit/merge/checkout capture
-- **file watcher** for local edit activity
-- **capture doctor/status** for diagnostics
-- **validation warning logging** for malformed capture events
-
-Example:
+- **Git hooks** — commit/merge/checkout
+- **File watcher** — local edit activity
+- **capture doctor/status** — diagnostics
+- **Validation logging** — malformed capture events
 
 ```bash
 npm run aibridge -- capture install-hooks
@@ -243,16 +250,9 @@ npm run aibridge -- capture watch --agent cursor
 
 ## Agent reliability layer
 
-AiBridge Core includes a launch-handshake reliability model so users do not need to manually message agents just to start or recover them.
+Launch-handshake model so you don’t have to manually message agents to start or recover them.
 
-Features:
-- tool-specific launch prompts
-- pending → active → stale → stopped session lifecycle
-- heartbeats
-- stale-session detection
-- recovery prompts based on current bridge state
-
-Example:
+**Features:** tool-specific launch prompts · pending → active → stale → stopped lifecycle · heartbeats · stale detection · recovery prompts
 
 ```bash
 npm run aibridge -- agent launch --agent codex --tool codex
@@ -265,34 +265,25 @@ npm run aibridge -- agent recover --session <session-id>
 
 ## Local service
 
-The local service exposes bridge state over HTTP and SSE.
-
-Start it with:
+The local service exposes bridge state over **HTTP** and **SSE**.
 
 ```bash
 npm run aibridge:service
 ```
 
-Key endpoints:
-- `GET /health`
-- `GET /bridge/status`
-- `GET /bridge/events`
-- `GET /bridge/setup/templates`
-- `POST /bridge/setup/plan`
-- `POST /bridge/setup/init`
-- entity endpoints for tasks, messages, handoffs, decisions, conventions, logs, and agent sessions
+**Endpoints:** `GET /health` · `GET /bridge/status` · `GET /bridge/events` · `GET /bridge/setup/templates` · `POST /bridge/setup/plan` · `POST /bridge/setup/init` · entity endpoints for tasks, messages, handoffs, decisions, conventions, logs, agent sessions.
 
 ---
 
 ## Repository structure
 
-```text
+```
 aibridge-core/
-├── aibridge/              # local runtime, CLI, service, capture, setup application
-├── src/                   # local dashboard app and shared frontend client code
-├── public/                # static assets
-├── examples/              # reference workflows and examples
-├── scripts/               # build helpers
+├── aibridge/     # runtime, CLI, service, capture, setup
+├── src/           # dashboard app and frontend client code
+├── public/        # static assets (incl. og-image, examples)
+├── examples/      # reference workflows
+├── scripts/       # build helpers
 └── package.json
 ```
 
@@ -301,47 +292,35 @@ aibridge-core/
 ## Scripts
 
 | Script | Description |
-|---|---|
-| `npm run dev` | Start the local dashboard dev server |
-| `npm run aibridge:service` | Start the local bridge service |
+|--------|-------------|
+| `npm run dev` | Local dashboard dev server |
+| `npm run aibridge:service` | Local bridge service |
 | `npm run build` | Build web app + CLI bundle |
 | `npm run test` | Run tests |
-| `npm run lint` | Run ESLint |
-| `npm run typecheck` | Run TypeScript checks |
-| `npm run aibridge -- <cmd>` | Run CLI commands from source |
-| `npm run aibridge:bin -- --help` | Run the built CLI bundle |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript check |
+| `npm run aibridge -- <cmd>` | Run CLI from source |
+| `npm run aibridge:bin -- --help` | Run built CLI bundle |
 
 ---
 
 ## What this repo is not
 
-AiBridge Core is **not**:
-- a hosted control plane
-- a team dashboard product
-- a cloud sync service
-- a hosted release/announcement center
-
-Those belong to the separate commercial product built on top of this local-first foundation.
+AiBridge Core is **not** a hosted control plane, team dashboard product, cloud sync service, or hosted release/announcement center. Those belong to the separate commercial product built on this foundation.
 
 ---
 
 ## Publishing (maintainers)
 
-Before publishing to npm:
+1. **Verify:** `npm run typecheck && npm run test && npm run build`
+2. **Audit:** `npm audit` (run `npm audit fix` for auto-fixable issues)
+3. **Pack check:** `npm run pack:check`
+4. **Publish:** `npm publish --access public`
 
-1. **Verify**: `npm run typecheck && npm run test && npm run build`
-2. **Audit**: `npm audit` — run `npm audit fix` for auto-fixable issues
-3. **Pack check**: `npm run pack:check` — confirm `dist-cli`, `README.md`, `LICENSE` are included
-4. **Publish**: `npm publish --access public`
-
-GitHub repo settings (manual):
-
-- **Description**: `Local-first coordination standard and reference implementation for AI workspaces.`
-- **Topics**: `aibridge`, `ai`, `cli`, `developer-tools`, `local-first`, `typescript`, `workflow`, `multi-agent`, `protocol`
-- **Social preview**: upload `public/og-image.png` if available
+**GitHub:** Description, topics, and social preview (e.g. `public/og-image.png`) in repo settings.
 
 ---
 
 ## License
 
-MIT
+**MIT**
