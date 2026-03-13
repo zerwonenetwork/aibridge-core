@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.4 — 2026-03-13
+
+### Changed
+- npm publish workflow: Trusted Publisher (OIDC) for releases.
+- Route-based code splitting to reduce dashboard bundle size.
+- SECURITY.md and publishing docs updated; GitHub repo links to zerwonenetwork/aibridge-core.
+
 ## 0.1.0 — 2026-03-12
 
 ### Added
