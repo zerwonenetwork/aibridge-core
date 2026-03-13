@@ -1,0 +1,16 @@
+title: "[General] "
+labels: ["general"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for open-ended discussion about AiBridge Core: setup, workflows, local-first coordination, or anything that doesn't fit Ideas or Q&A.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What would you like to discuss?
+      description: A short summary or question.
+      placeholder: "e.g. How are you using the CLI with multiple agents?"
+      render: markdown
+    validations:
+      required: true

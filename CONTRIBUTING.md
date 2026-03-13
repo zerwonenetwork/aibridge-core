@@ -2,6 +2,8 @@
 
 Thanks for helping improve **AiBridge Core**.
 
+**Questions or ideas?** Use [GitHub Discussions](https://github.com/zerwonenetwork/aibridge-core/discussions). For bugs and feature requests, open an [Issue](https://github.com/zerwonenetwork/aibridge-core/issues).
+
 ### Ground rules
 
 - **Local-first only**: this repo intentionally does not include hosted auth/control-plane code.

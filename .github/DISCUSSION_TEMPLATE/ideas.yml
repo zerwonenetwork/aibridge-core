@@ -1,0 +1,36 @@
+title: "[Idea] "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share an idea for AiBridge Core: new CLI commands, dashboard features, protocol extensions, or tooling.
+  - type: input
+    id: title
+    attributes:
+      label: One-line summary
+      placeholder: "e.g. Add a 'bridge diff' command for comparing context across sessions"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What problem does it solve? How might it work?
+      placeholder: "Describe the idea and why it would help."
+      render: markdown
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where does this fit?
+      options:
+        - CLI
+        - Dashboard
+        - Protocol / .aibridge
+        - Capture
+        - Agent sessions
+        - Setup / onboarding
+        - Other

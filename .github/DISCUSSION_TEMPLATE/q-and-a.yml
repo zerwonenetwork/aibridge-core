@@ -1,0 +1,21 @@
+title: "[Q&A] "
+labels: ["q-and-a"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a question about using or contributing to AiBridge Core. For bugs, please open an [Issue](https://github.com/zerwonenetwork/aibridge-core/issues).
+  - type: input
+    id: question
+    attributes:
+      label: Question (one line)
+      placeholder: "e.g. How do I run the dashboard against an existing .aibridge folder?"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: OS, Node version, what you've tried, and any relevant output.
+      placeholder: "Windows 11, Node 20, I ran 'aibridge status' and got..."
+      render: markdown

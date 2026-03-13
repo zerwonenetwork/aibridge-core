@@ -12,6 +12,7 @@
   <a href="https://www.npmjs.com/package/@zerwonenetwork/aibridge-core"><img src="https://img.shields.io/npm/v/@zerwonenetwork/aibridge-core.svg" alt="npm version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
   <a href="https://github.com/zerwonenetwork/aibridge-core"><img src="https://img.shields.io/badge/GitHub-zerwonenetwork%2Faibridge--core-24292e?logo=github" alt="GitHub repo" /></a>
+  <a href="https://github.com/zerwonenetwork/aibridge-core/discussions"><img src="https://img.shields.io/badge/Discussions-Q%26A%20%7C%20Ideas%20%7C%20General-238636?logo=github" alt="Discussions" /></a>
 </p>
 
 <p align="center">
@@ -52,8 +53,15 @@ This repository is the **local-first open-core foundation**:
 - [Repository structure](#repository-structure)
 - [Scripts](#scripts)
 - [What this repo is not](#what-this-repo-is-not)
+- [Community](#community)
 - [Publishing (maintainers)](#publishing-maintainers)
 - [License](#license)
+
+---
+
+## Community
+
+**Questions, ideas, or general chat?** Use [GitHub Discussions](https://github.com/zerwonenetwork/aibridge-core/discussions) (Q&A, Ideas, General). For bugs and feature requests, open an [Issue](https://github.com/zerwonenetwork/aibridge-core/issues).
 
 ---
 
