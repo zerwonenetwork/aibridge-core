@@ -1,6 +1,6 @@
 # CLI Scope
 
-Planned package: `@zerwone/aibridge`
+Planned package: `@zerwonenetwork/aibridge-core`
 
 ## Command surface
 

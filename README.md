@@ -117,7 +117,7 @@ npm run aibridge -- <command>
 Or after publishing/installing:
 
 ```bash
-npm i -g @zerwone/aibridge-core
+npm i -g @zerwonenetwork/aibridge-core
 aibridge --help
 ```
 
