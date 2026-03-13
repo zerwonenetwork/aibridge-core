@@ -316,16 +316,8 @@ aibridge-core/
 
 AiBridge Core is **not** a hosted control plane, team dashboard product, cloud sync service, or hosted release/announcement center. Those belong to the separate commercial product built on this foundation.
 
----
 
-## Publishing (maintainers)
 
-1. **Verify:** `npm run typecheck && npm run test && npm run build`
-2. **Audit:** `npm audit` (run `npm audit fix` for auto-fixable issues)
-3. **Pack check:** `npm run pack:check`
-4. **Publish:** `npm publish --access public`
-
-**GitHub:** Description, topics, and social preview (e.g. `public/og-image.png`) in repo settings.
 
 ---
 
