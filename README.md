@@ -325,6 +325,23 @@ Those belong to the separate commercial product built on top of this local-first
 
 ---
 
+## Publishing (maintainers)
+
+Before publishing to npm:
+
+1. **Verify**: `npm run typecheck && npm run test && npm run build`
+2. **Audit**: `npm audit` — run `npm audit fix` for auto-fixable issues
+3. **Pack check**: `npm run pack:check` — confirm `dist-cli`, `README.md`, `LICENSE` are included
+4. **Publish**: `npm publish --access public`
+
+GitHub repo settings (manual):
+
+- **Description**: `Local-first coordination standard and reference implementation for AI workspaces.`
+- **Topics**: `aibridge`, `ai`, `cli`, `developer-tools`, `local-first`, `typescript`, `workflow`, `multi-agent`, `protocol`
+- **Social preview**: upload `public/og-image.png` if available
+
+---
+
 ## License
 
 MIT
