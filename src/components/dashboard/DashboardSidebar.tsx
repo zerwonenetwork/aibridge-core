@@ -4,7 +4,7 @@ import type { DashboardView } from "@/pages/Dashboard";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import aibridgeLogo from "@/assets/logo.svg";
+import aibridgeLogo from "@/assets/logo.png";
 
 type SidebarNavItem = { id: DashboardView; label: string; icon: React.ElementType };
 

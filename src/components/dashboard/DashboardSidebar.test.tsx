@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { DashboardSidebar } from "./DashboardSidebar";
 
-vi.mock("@/assets/logo.svg", () => ({
-  default: "logo.svg",
+vi.mock("@/assets/logo.png", () => ({
+  default: "logo.png",
 }));
 
 function renderSidebar(children: ReactNode) {

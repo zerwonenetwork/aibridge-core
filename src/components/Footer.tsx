@@ -1,7 +1,7 @@
 import { Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import aibridgeLogo from "@/assets/logo.svg";
+import aibridgeLogo from "@/assets/logo.png";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const Footer = () => {
@@ -33,7 +33,7 @@ const Footer = () => {
       {/* Bottom */}
       <div className="relative container max-w-5xl mx-auto border-t border-border/50 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
-          <img src={aibridgeLogo} alt="AiBridge" className="h-7 w-7" />
+          <img src={aibridgeLogo} alt="AiBridge" className="h-8 w-8" />
           <span className="font-display text-sm font-bold text-foreground tracking-tight">AiBridge</span>
           <span className="text-xs text-muted-foreground/50">by ZerwOne</span>
         </div>

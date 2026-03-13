@@ -50,7 +50,7 @@ export function importBridgeState(serialized: string): AibridgeStatus {
     return parsed as AibridgeStatus;
   }
 
-  throw new Error("Unsupported AiBridge export payload.");
+  throw new Error("Unsupported Relayn export payload.");
 }
 
 export function snapshotToMarkdown(snapshot: AibridgeBridgeSnapshot): string {

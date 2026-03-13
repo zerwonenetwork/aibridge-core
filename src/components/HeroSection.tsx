@@ -2,7 +2,7 @@ import { ArrowRight, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import aibridgeLogo from "@/assets/logo.svg";
+import aibridgeLogo from "@/assets/logo.png";
 
 const HeroSection = () => {
   return (

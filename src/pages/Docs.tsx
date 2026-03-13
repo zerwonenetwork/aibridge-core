@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { docsCategories, docsSections, type DocSection } from "@/lib/docs-content";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/dashboard/ThemeToggle";
-import aibridgeLogo from "@/assets/logo.svg";
+import aibridgeLogo from "@/assets/logo.png";
 import Prism from "prismjs";
 import "prismjs/themes/prism-tomorrow.css";
 import "prismjs/components/prism-json";

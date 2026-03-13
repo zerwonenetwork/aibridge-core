@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Menu, X, BookOpen } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import aibridgeLogo from "@/assets/logo.svg";
+import aibridgeLogo from "@/assets/logo.png";
 
 const sections = [
   { id: "problem", label: "Problem" },
@@ -37,8 +37,8 @@ export function LandingNav() {
     >
       <div className="container max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
         <Link to="/" className="flex items-center gap-2">
-          <img src={aibridgeLogo} alt="AiBridge" className="w-6 h-6" />
-          <span className="font-display text-sm font-bold text-foreground">AiBridge</span>
+          <img src={aibridgeLogo} alt="AiBridge" className="w-7 h-7" />
+          <span className="font-display text-sm font-bold text-foreground tracking-wide">AiBridge</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-6">
