@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.11 — 2026-03-14
+
+### Fixed
+- **Capture hooks with global install** — When using the published package (`aibridge` from npm), `TOOL_ROOT` is now correct and git hooks call the global `aibridge` instead of requiring tsx. `aibridge capture doctor` no longer fails on "tsx not found" when using the global CLI; it reports "Using global aibridge for hooks (tsx not required)". Re-run `aibridge capture install-hooks` after updating to refresh hook scripts.
+
 ## 0.1.10 — 2026-03-14
 
 ### Fixed

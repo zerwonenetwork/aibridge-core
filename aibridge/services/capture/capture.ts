@@ -22,9 +22,14 @@ import {
 
 const execFileAsync = promisify(execFile);
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const TOOL_ROOT = path.resolve(CURRENT_DIR, "../../..");
+// When bundled (dist-cli/aibridge.js), package root is one level up. When from source (aibridge/services/capture/), repo root is three levels up.
+const TOOL_ROOT =
+  path.basename(CURRENT_DIR) === "dist-cli"
+    ? path.resolve(CURRENT_DIR, "..")
+    : path.resolve(CURRENT_DIR, "../../..");
 const CLI_ENTRY = path.join(TOOL_ROOT, "aibridge", "cli", "bin", "aibridge.ts");
 const TSX_CLI = path.join(TOOL_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
+const IS_PUBLISHED_BUNDLE = path.basename(CURRENT_DIR) === "dist-cli";
 const HOOK_MARKER = "# aibridge capture hook";
 const DEFAULT_HOOKS = ["post-commit", "post-merge", "post-checkout"] as const;
 const DEFAULT_WATCH_DEBOUNCE_MS = 1500;
@@ -167,8 +172,21 @@ async function pathExists(targetPath: string) {
 }
 
 function buildHookScript(repoRoot: string, hookName: HookName) {
-  const toolRoot = TOOL_ROOT.replace(/\\/g, "/");
   const targetRoot = repoRoot.replace(/\\/g, "/");
+  if (IS_PUBLISHED_BUNDLE) {
+    return `#!/bin/sh
+${HOOK_MARKER}
+set -e
+HOOK_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+BACKUP="$HOOK_DIR/${hookName}.aibridge.backup"
+if [ -x "$BACKUP" ]; then
+  "$BACKUP" "$@"
+fi
+cd "${targetRoot}" || exit 1
+aibridge capture hook ${hookName} "$@" || true
+`;
+  }
+  const toolRoot = TOOL_ROOT.replace(/\\/g, "/");
   return `#!/bin/sh
 ${HOOK_MARKER}
 set -e
@@ -615,11 +633,19 @@ export async function runCaptureDoctor(options: { cwd?: string } = {}) {
       checks.push({ name: "git", ok: false, details: (error as Error).message });
     }
 
-    checks.push({
-      name: "tsx",
-      ok: await pathExists(TSX_CLI),
-      details: await pathExists(TSX_CLI) ? `Found ${TSX_CLI}` : `Not found: ${TSX_CLI}`,
-    });
+    if (IS_PUBLISHED_BUNDLE) {
+      checks.push({
+        name: "tsx",
+        ok: true,
+        details: "Using global aibridge for hooks (tsx not required)",
+      });
+    } else {
+      checks.push({
+        name: "tsx",
+        ok: await pathExists(TSX_CLI),
+        details: (await pathExists(TSX_CLI)) ? `Found ${TSX_CLI}` : `Not found: ${TSX_CLI}`,
+      });
+    }
 
     const captureStatus = await readCaptureStatus(bridgeRoot);
     checks.push({
