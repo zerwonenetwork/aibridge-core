@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.7 — 2026-03-08
+
+### Added
+- **`aibridge agent add <agent-id>`** — Add an agent to an existing bridge from the CLI (e.g. `aibridge agent add antigravity`). Creates the agent entry in `bridge.json` and the `.aibridge/agents/<agent-id>.md` file from the built-in template. Supported ids: `cursor`, `claude`, `codex`, `antigravity`, `copilot`, `windsurf`, `custom`.
+
 ## 0.1.6 — 2026-03-13
 
 ### Changed

@@ -1856,6 +1856,43 @@ function uniqueAgentKinds(agentIds: string[]) {
   return normalized.length > 0 ? normalized : (["cursor"] satisfies AibridgeAgentKind[]);
 }
 
+export type AddAgentResult = { added: true; agentId: string } | { added: false; reason: string };
+
+export async function addAgent(rootPath: string, agentKind: string): Promise<AddAgentResult> {
+  const kind = agentKind.trim().toLowerCase();
+  if (!agentKinds.includes(kind as AibridgeAgentKind)) {
+    throw new BridgeRuntimeError(
+      "VALIDATION_ERROR",
+      `Unsupported agent kind: ${agentKind}. Use one of: ${agentKinds.join(", ")}`,
+    );
+  }
+
+  return withBridgeWriteLock(rootPath, async (lockedRoot) => {
+    const paths = getBridgePaths(lockedRoot);
+    if (!(await fileExists(paths.bridgeFile))) {
+      return { added: false, reason: "No bridge found. Run `aibridge init` first." };
+    }
+
+    const bridge = await readBridgeConfig(paths, []);
+    if (bridge.agents.some((a) => a.kind === kind)) {
+      return { added: false, reason: `Agent ${kind} is already in the bridge.` };
+    }
+
+    const newAgent = buildAgent(kind as AibridgeAgentKind);
+    const updatedBridge = bridgeSchema.parse({
+      ...bridge,
+      agents: [...bridge.agents, newAgent],
+    });
+    await writeJsonAtomic(paths.bridgeFile, updatedBridge);
+
+    const agentPath = path.join(paths.agentsDir, `${kind}.md`);
+    await ensureDir(paths.agentsDir);
+    await createAgentTemplate(kind as AibridgeAgentKind, agentPath);
+
+    return { added: true, agentId: kind };
+  });
+}
+
 export async function initBridge(options: InitBridgeOptions = {}) {
   const cwd = options.cwd ?? process.cwd();
   const root = path.resolve(cwd, DEFAULT_BRIDGE_DIRNAME);

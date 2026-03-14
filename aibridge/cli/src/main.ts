@@ -4,6 +4,7 @@ import readline from "node:readline/promises";
 import {
   BridgeRuntimeError,
   acknowledgeMessage,
+  addAgent,
   addConvention,
   addDecision,
   addLog,
@@ -63,6 +64,7 @@ import {
   errorLine,
   errorPanel,
   headline,
+  info,
   info,
   infoLine,
   kv,
@@ -481,6 +483,7 @@ function helpText() {
   aibridge convention show [--json]
   aibridge convention list [--json]
   aibridge convention sync
+  aibridge agent add <agent-id>
   aibridge agent launch --agent <agent-id> --tool <cursor|codex> [--source <dashboard|app|cli>] [--json]
   aibridge agent start --session <session-id>
   aibridge agent heartbeat --session <session-id>
@@ -893,6 +896,17 @@ export async function runCli(rawArgs: string[], io: { stdout: (text: string) => 
 
     case "agent": {
       const normalizedSubcommand = subcommand ?? "status";
+
+      if (normalizedSubcommand === "add") {
+        const agentKind = requireValue(rest[0], "Agent kind is required (e.g. cursor, claude, codex, antigravity, copilot, windsurf, custom).");
+        const result = await addAgent(bridgeRoot(), agentKind);
+        if (result.added) {
+          io.stdout(`${successLine(`Added agent ${result.agentId}`)}\n`);
+        } else {
+          io.stdout(`${info(result.reason)}\n`);
+        }
+        return 0;
+      }
 
       if (normalizedSubcommand === "launch") {
         const agentId = requireValue(flagString(flags, "agent"), "`--agent` is required.");
