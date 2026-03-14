@@ -37,7 +37,7 @@ export const setupTemplateIds = [
 ] as const;
 export const setupPriorityValues = ["speed", "quality", "security", "cost"] as const;
 export const setupAgentModes = ["single-agent", "multi-agent"] as const;
-export const agentToolKinds = ["cursor", "codex"] as const;
+export const agentToolKinds = ["cursor", "codex", "antigravity"] as const;
 export const agentSessionStatuses = ["pending", "active", "stale", "stopped", "failed"] as const;
 export const agentLaunchSources = ["dashboard", "app", "cli"] as const;
 

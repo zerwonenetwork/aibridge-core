@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Terminal, FolderOpen, Play, ArrowRight, Copy, Sparkles } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Terminal, FolderOpen, Play, ArrowRight, Copy, Sparkles, HardDrive, PlugZap } from "lucide-react";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import type { AibridgeAccessRole, AibridgeLocalSource } from "@/lib/aibridge/types";
@@ -18,6 +19,9 @@ interface OnboardingGuideProps {
   isSample?: boolean;
   onSwitchToSample: () => void;
   onOpenSettings: () => void;
+  onUseWorkspace: () => void;
+  onUseCustomWorkspace: (workspacePath: string) => void;
+  onRetry: () => void;
   onLocalInitialized: (payload: { rootPath: string; workspacePath: string }) => void;
 }
 
@@ -56,9 +60,13 @@ export function OnboardingGuide({
   isSample,
   onSwitchToSample,
   onOpenSettings,
+  onUseWorkspace,
+  onUseCustomWorkspace,
+  onRetry,
   onLocalInitialized,
 }: OnboardingGuideProps) {
   const [showWizard, setShowWizard] = useState(false);
+  const [workspacePath, setWorkspacePath] = useState(customRoot);
 
   if (!error || isSample) return null;
 
@@ -88,7 +96,42 @@ export function OnboardingGuide({
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-[10px] font-mono">Step 1</Badge>
-                    <span className="text-sm font-medium text-foreground">Start guided setup or use the CLI</span>
+                    <span className="text-sm font-medium text-foreground">Open or create a workspace</span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <button
+                      onClick={onUseWorkspace}
+                      className="rounded-lg border border-border bg-muted/20 p-4 text-left hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <HardDrive className="w-4 h-4 text-primary" />
+                        <p className="text-sm font-medium text-foreground">Use current workspace</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Point the dashboard at the repo already served by the local service.
+                      </p>
+                    </button>
+                    <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="w-4 h-4 text-primary" />
+                        <p className="text-sm font-medium text-foreground">Use custom path</p>
+                      </div>
+                      <Input
+                        value={workspacePath}
+                        onChange={(event) => setWorkspacePath(event.target.value)}
+                        placeholder="D:\\Projects\\my-app"
+                        className="font-mono text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full gap-1.5"
+                        onClick={() => onUseCustomWorkspace(workspacePath.trim())}
+                        disabled={!workspacePath.trim()}
+                      >
+                        Open custom workspace
+                      </Button>
+                    </div>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button size="sm" className="gap-1.5" onClick={() => setShowWizard((current) => !current)}>
@@ -100,10 +143,15 @@ export function OnboardingGuide({
                       Local settings
                     </Button>
                   </div>
-                  <CopyCommand command="npx aibridge init --interactive" />
-                  <p className="text-xs text-muted-foreground">
-                    The guided flow initializes the bridge from the shared setup engine. The CLI remains the fallback.
-                  </p>
+                  <details className="rounded-md border border-border bg-background/60 p-3">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">Advanced CLI fallback</summary>
+                    <div className="mt-3 space-y-2">
+                      <CopyCommand command='npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge init --interactive"' />
+                      <p className="text-xs text-muted-foreground">
+                        The guided flow is the primary path. Keep the CLI for advanced users and agent recovery.
+                      </p>
+                    </div>
+                  </details>
                 </CardContent>
               </Card>
             </motion.div>
@@ -137,12 +185,26 @@ export function OnboardingGuide({
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-[10px] font-mono">Step 2</Badge>
-                    <span className="text-sm font-medium text-foreground">Start the local service</span>
+                    <span className="text-sm font-medium text-foreground">Connect the local service</span>
                   </div>
-                  <CopyCommand command="npx aibridge serve" />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-200 text-[10px]">
+                      <PlugZap className="w-3 h-3 mr-1" /> disconnected
+                    </Badge>
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
+                      <Play className="w-3.5 h-3.5" />
+                      Retry connection
+                    </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Starts the local AiBridge service that connects the dashboard to your project data.
+                    The dashboard reads live bridge data through the local service. Start it if the workspace is not reachable yet.
                   </p>
+                  <details className="rounded-md border border-border bg-background/60 p-3">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">Advanced service command</summary>
+                    <div className="mt-3">
+                      <CopyCommand command='npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge serve"' />
+                    </div>
+                  </details>
                 </CardContent>
               </Card>
             </motion.div>
@@ -168,13 +230,25 @@ export function OnboardingGuide({
             <Card className="bg-card border-border">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center gap-2">
-                  <Play className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-medium text-foreground">Start the local service</span>
+                  <PlugZap className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground">Connect the local service</span>
                 </div>
-                <CopyCommand command="npx aibridge serve" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-200 text-[10px]">Disconnected</Badge>
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                    Retry connection
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   The dashboard connects to a local HTTP service. Start it from your project root.
                 </p>
+                <details className="rounded-md border border-border bg-background/60 p-3">
+                  <summary className="cursor-pointer text-xs text-muted-foreground">Advanced service command</summary>
+                  <div className="mt-3">
+                    <CopyCommand command='npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge serve"' />
+                  </div>
+                </details>
               </CardContent>
             </Card>
           </motion.div>

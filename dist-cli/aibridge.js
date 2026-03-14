@@ -2,15 +2,16 @@
 
 // aibridge/cli/src/main.ts
 import { promises as fs6 } from "fs";
-import path7 from "path";
+import os from "os";
+import path6 from "path";
 import readline from "readline/promises";
 
 // aibridge/runtime/store.ts
 import { randomUUID as randomUUID2 } from "crypto";
 import { promises as fs2 } from "fs";
-import { existsSync as existsSync2 } from "fs";
-import path3 from "path";
-import { fileURLToPath as fileURLToPath2 } from "url";
+import { existsSync } from "fs";
+import path2 from "path";
+import { fileURLToPath } from "url";
 
 // aibridge/runtime/context.ts
 var PRIORITY_ORDER = {
@@ -314,13 +315,8 @@ function parseContextTimestamp(markdown) {
 }
 
 // aibridge/runtime/agent-sessions.ts
-import path from "path";
-import { existsSync } from "fs";
-import { fileURLToPath } from "url";
 var ACTIVE_STALE_MS = 10 * 60 * 1e3;
 var PENDING_STALE_MS = 5 * 60 * 1e3;
-var RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
-var CLI_ENTRY_PATH = path.resolve(RUNTIME_DIR, "../cli/bin/aibridge.ts");
 function pickLatestTimestamp(...values) {
   return values.filter(Boolean).sort((left, right) => String(right).localeCompare(String(left)))[0];
 }
@@ -344,16 +340,17 @@ function summarizeRole(agent, snapshot) {
   return `${role.name}: ${role.responsibilities.join("; ")}`;
 }
 function buildCliCommandHint() {
-  if (existsSync(CLI_ENTRY_PATH)) {
-    return `node ${CLI_ENTRY_PATH.replace(/\\/g, "/")} `;
-  }
   return "aibridge ";
+}
+function buildCliFallbackCommand(subcommand) {
+  return `npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge ${subcommand}"`;
 }
 function buildLaunchInstructionSet(snapshot, agent, toolKind, sessionId, launchSource, generatedAt = (/* @__PURE__ */ new Date()).toISOString()) {
   const assignedTasks = listAssignedTasks(snapshot, agent.id).slice(0, 3);
   const unreadMessages = unreadMessagesForAgent(snapshot, agent.id).slice(0, 2);
   const handoffs = openHandoffsForAgent(snapshot, agent.id).slice(0, 2);
   const cliCommand = buildCliCommandHint();
+  const fallbackStartCommand = buildCliFallbackCommand(`agent start --session ${sessionId}`);
   const firstSteps = [
     "Read .aibridge/CONTEXT.md before making changes.",
     "Inspect the repo and confirm the current working surface before coding.",
@@ -365,10 +362,11 @@ function buildLaunchInstructionSet(snapshot, agent, toolKind, sessionId, launchS
     "If you are blocked or handing off, create a handoff or warning message in AiBridge.",
     "Regenerate context after meaningful state changes."
   ];
-  const supportiveFile = toolKind === "cursor" ? ".cursorrules" : "AGENTS.md";
+  const supportiveFile = toolKind === "cursor" ? ".cursor/rules/aibridge.mdc" : "AGENTS.md";
+  const toolLabel = toolKind === "cursor" ? "Cursor" : toolKind === "codex" ? "Codex" : "Antigravity";
   const promptSections = [
     `You are operating as the ${agent.name} agent in the AiBridge workspace "${snapshot.bridge.projectName}".`,
-    `Tool: ${toolKind}. Launch source: ${launchSource}.`,
+    `Tool: ${toolLabel.toLowerCase()}. Launch source: ${launchSource}.`,
     "",
     "Read these first:",
     "- .aibridge/CONTEXT.md",
@@ -389,9 +387,11 @@ ${handoffs.map((handoff) => `- ${handoff.fromAgentId}: ${handoff.description}`).
     "",
     "Required workflow:",
     ...firstSteps.map((step) => `- ${step}`),
+    `- If \`aibridge\` is not on PATH, use: ${fallbackStartCommand}`,
     ...checklist.map((step) => `- ${step}`),
     "",
-    `Canonical CLI path: ${cliCommand}<command>`
+    `Canonical CLI path: ${cliCommand}<command>`,
+    `Fallback package path: ${buildCliFallbackCommand("<command>")}`
   ];
   return {
     sessionId,
@@ -411,6 +411,7 @@ function buildRecoveryPromptFromReason(snapshot, session, reason, lastActivityAt
   const unreadMessages = unreadMessagesForAgent(snapshot, session.agentId).slice(0, 3);
   const handoffs = openHandoffsForAgent(snapshot, session.agentId).slice(0, 2);
   const cliCommand = buildCliCommandHint();
+  const fallbackHeartbeatCommand = buildCliFallbackCommand(`agent heartbeat --session ${session.id}`);
   return [
     `Resume your AiBridge session for agent ${session.agentId}.`,
     `Reason: ${reason}`,
@@ -419,6 +420,7 @@ function buildRecoveryPromptFromReason(snapshot, session, reason, lastActivityAt
     "- Re-read .aibridge/CONTEXT.md and .aibridge/CONVENTIONS.md.",
     "- Compare your current understanding with the latest repo state.",
     `- Confirm recovery by running: ${cliCommand}agent heartbeat --session ${session.id}`,
+    `- If \`aibridge\` is not on PATH, use: ${fallbackHeartbeatCommand}`,
     "",
     assignedTasks.length > 0 ? `Current assigned tasks:
 ${assignedTasks.map((task) => `- ${task.title} [${task.status}]`).join("\n")}` : "Current assigned tasks:\n- None.",
@@ -514,7 +516,7 @@ var setupTemplateIds = [
 ];
 var setupPriorityValues = ["speed", "quality", "security", "cost"];
 var setupAgentModes = ["single-agent", "multi-agent"];
-var agentToolKinds = ["cursor", "codex"];
+var agentToolKinds = ["cursor", "codex", "antigravity"];
 var agentSessionStatuses = ["pending", "active", "stale", "stopped", "failed"];
 var agentLaunchSources = ["dashboard", "app", "cli"];
 var agentSchema = z.object({
@@ -670,16 +672,16 @@ var announcementSchema = z.object({
 // aibridge/services/capture/state.ts
 import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
-import path2 from "path";
+import path from "path";
 var CAPTURE_DIRNAME = "capture";
 var CAPTURE_STATUS_FILE = "status.json";
 var VALIDATION_WARNINGS_FILE = "validation-errors.jsonl";
 function getCapturePaths(rootPath) {
-  const captureDir = path2.join(rootPath, CAPTURE_DIRNAME);
+  const captureDir = path.join(rootPath, CAPTURE_DIRNAME);
   return {
     captureDir,
-    statusFile: path2.join(captureDir, CAPTURE_STATUS_FILE),
-    validationWarningsFile: path2.join(captureDir, VALIDATION_WARNINGS_FILE)
+    statusFile: path.join(captureDir, CAPTURE_STATUS_FILE),
+    validationWarningsFile: path.join(captureDir, VALIDATION_WARNINGS_FILE)
   };
 }
 function defaultCaptureStatus() {
@@ -716,7 +718,7 @@ function isWatcherProcessAlive(pid) {
   }
 }
 async function writeJsonAtomic(targetPath, value) {
-  await ensureDir(path2.dirname(targetPath));
+  await ensureDir(path.dirname(targetPath));
   const tempPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}
@@ -827,20 +829,20 @@ var BRIDGE_WRITE_LOCK = ".aibridge.write.lock";
 var LOCK_POLL_INTERVAL_MS = 50;
 var LOCK_STALE_MS = 3e4;
 var LOCK_TIMEOUT_MS = 1e4;
-var RUNTIME_DIR2 = path3.dirname(fileURLToPath2(import.meta.url));
+var RUNTIME_DIR = path2.dirname(fileURLToPath(import.meta.url));
 function resolveFirstExistingPath(candidates) {
   for (const candidate of candidates) {
-    if (existsSync2(candidate)) return candidate;
+    if (existsSync(candidate)) return candidate;
   }
   return candidates[0];
 }
 var PROTOCOL_TEMPLATES_ROOT = resolveFirstExistingPath([
-  path3.resolve(RUNTIME_DIR2, "../protocol/templates"),
-  path3.resolve(RUNTIME_DIR2, "aibridge/protocol/templates")
+  path2.resolve(RUNTIME_DIR, "../protocol/templates"),
+  path2.resolve(RUNTIME_DIR, "aibridge/protocol/templates")
 ]);
 var SAMPLE_BRIDGE_ROOT = resolveFirstExistingPath([
-  path3.resolve(RUNTIME_DIR2, "../../public/examples/aibridge/local-bridge"),
-  path3.resolve(RUNTIME_DIR2, "public/examples/aibridge/local-bridge")
+  path2.resolve(RUNTIME_DIR, "../../public/examples/aibridge/local-bridge"),
+  path2.resolve(RUNTIME_DIR, "public/examples/aibridge/local-bridge")
 ]);
 var AGENT_LABELS = {
   cursor: "Cursor",
@@ -860,22 +862,24 @@ var BridgeRuntimeError = class extends Error {
   }
 };
 function getBridgePaths(root) {
+  const repoRoot = getRepoPath(root);
   return {
     root,
-    bridgeFile: path3.join(root, "bridge.json"),
-    contextFile: path3.join(root, "CONTEXT.md"),
-    conventionsFile: path3.join(root, "CONVENTIONS.md"),
-    captureDir: path3.join(root, "capture"),
-    agentsDir: path3.join(root, "agents"),
-    tasksDir: path3.join(root, "tasks"),
-    logsDir: path3.join(root, "logs"),
-    handoffsDir: path3.join(root, "handoffs"),
-    decisionsDir: path3.join(root, "decisions"),
-    conventionsDir: path3.join(root, "conventions"),
-    messagesDir: path3.join(root, "messages"),
-    releasesDir: path3.join(root, "releases"),
-    announcementsDir: path3.join(root, "announcements"),
-    sessionsDir: path3.join(root, "sessions")
+    repoRoot,
+    bridgeFile: path2.join(root, "bridge.json"),
+    contextFile: path2.join(root, "CONTEXT.md"),
+    conventionsFile: path2.join(root, "CONVENTIONS.md"),
+    captureDir: path2.join(root, "capture"),
+    agentsDir: path2.join(root, "agents"),
+    tasksDir: path2.join(root, "tasks"),
+    logsDir: path2.join(root, "logs"),
+    handoffsDir: path2.join(root, "handoffs"),
+    decisionsDir: path2.join(root, "decisions"),
+    conventionsDir: path2.join(root, "conventions"),
+    messagesDir: path2.join(root, "messages"),
+    releasesDir: path2.join(root, "releases"),
+    announcementsDir: path2.join(root, "announcements"),
+    sessionsDir: path2.join(root, "sessions")
   };
 }
 async function fileExists2(targetPath) {
@@ -901,19 +905,19 @@ function buildAgent(kind) {
   };
 }
 async function normalizeBridgeRoot(targetPath) {
-  const explicitBridge = path3.resolve(targetPath);
-  if (await fileExists2(path3.join(explicitBridge, "bridge.json"))) {
+  const explicitBridge = path2.resolve(targetPath);
+  if (await fileExists2(path2.join(explicitBridge, "bridge.json"))) {
     return explicitBridge;
   }
-  const nestedBridge = path3.join(explicitBridge, DEFAULT_BRIDGE_DIRNAME);
-  if (await fileExists2(path3.join(nestedBridge, "bridge.json"))) {
+  const nestedBridge = path2.join(explicitBridge, DEFAULT_BRIDGE_DIRNAME);
+  if (await fileExists2(path2.join(nestedBridge, "bridge.json"))) {
     return nestedBridge;
   }
   return explicitBridge;
 }
 async function acquireBridgeWriteLock(rootPath) {
   await ensureDir2(rootPath);
-  const lockPath = path3.join(rootPath, BRIDGE_WRITE_LOCK);
+  const lockPath = path2.join(rootPath, BRIDGE_WRITE_LOCK);
   const startedAt = Date.now();
   while (true) {
     try {
@@ -975,9 +979,9 @@ async function resolveBridgeRoot(options = {}) {
     if (!options.customRoot?.trim()) {
       throw new BridgeRuntimeError("BAD_REQUEST", "A custom bridge path is required for custom local mode.");
     }
-    return normalizeBridgeRoot(path3.resolve(cwd, options.customRoot));
+    return normalizeBridgeRoot(path2.resolve(cwd, options.customRoot));
   }
-  return normalizeBridgeRoot(path3.resolve(cwd, DEFAULT_BRIDGE_DIRNAME));
+  return normalizeBridgeRoot(path2.resolve(cwd, DEFAULT_BRIDGE_DIRNAME));
 }
 async function readTextIfExists(targetPath) {
   if (!await fileExists2(targetPath)) {
@@ -992,13 +996,13 @@ async function readJsonFile(targetPath, parse, issues) {
     const result = parse(parsed);
     if (!result.success) {
       issues.push(
-        `Invalid ${path3.basename(targetPath)}: ${result.error.issues.map((issue) => issue.message).join(", ")}`
+        `Invalid ${path2.basename(targetPath)}: ${result.error.issues.map((issue) => issue.message).join(", ")}`
       );
       return null;
     }
     return result.data;
   } catch (error2) {
-    issues.push(`Unable to read ${path3.basename(targetPath)}: ${error2.message}`);
+    issues.push(`Unable to read ${path2.basename(targetPath)}: ${error2.message}`);
     return null;
   }
 }
@@ -1009,7 +1013,7 @@ async function readJsonCollection(dirPath, parse, issues) {
   const entries = (await fs2.readdir(dirPath)).filter((name) => name.endsWith(".json")).sort((left, right) => left.localeCompare(right));
   const data = [];
   for (const entry of entries) {
-    const item = await readJsonFile(path3.join(dirPath, entry), parse, issues);
+    const item = await readJsonFile(path2.join(dirPath, entry), parse, issues);
     if (item) {
       data.push(item);
     }
@@ -1083,7 +1087,7 @@ async function parseLogFiles(logsDir, issues) {
   const entries = (await fs2.readdir(logsDir)).filter((name) => name.endsWith(".jsonl")).sort((left, right) => left.localeCompare(right));
   const logs = [];
   for (const entry of entries) {
-    const fullPath = path3.join(logsDir, entry);
+    const fullPath = path2.join(logsDir, entry);
     const raw = await fs2.readFile(fullPath, "utf8");
     const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     for (const [lineIndex, line] of lines.entries()) {
@@ -1116,7 +1120,7 @@ async function readBridgeConfig(paths, issues) {
   return config;
 }
 function getRepoPath(root) {
-  return path3.basename(root) === DEFAULT_BRIDGE_DIRNAME ? path3.dirname(root) : root;
+  return path2.basename(root) === DEFAULT_BRIDGE_DIRNAME ? path2.dirname(root) : root;
 }
 function normalizeList(values) {
   return (values ?? []).map((value) => value.trim()).filter(Boolean);
@@ -1213,7 +1217,7 @@ function normalizeStatus(snapshot, accessOptions = {}) {
         done: snapshot.tasks.filter((task) => task.status === "done").length
       },
       sourceRoot: snapshot.repoPath,
-      sourceLabel: path3.basename(snapshot.repoPath) || snapshot.repoPath,
+      sourceLabel: path2.basename(snapshot.repoPath) || snapshot.repoPath,
       setup: snapshot.bridge.setup
     },
     tasks: snapshot.tasks.slice().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
@@ -1291,7 +1295,7 @@ function assertAgentExists(bridge, agentId) {
   }
 }
 async function writeJsonAtomic2(targetPath, value) {
-  await ensureDir2(path3.dirname(targetPath));
+  await ensureDir2(path2.dirname(targetPath));
   const tempPath = `${targetPath}.${process.pid}.${randomUUID2()}.tmp`;
   try {
     await fs2.writeFile(tempPath, `${JSON.stringify(value, null, 2)}
@@ -1303,11 +1307,24 @@ async function writeJsonAtomic2(targetPath, value) {
   }
 }
 async function writeTextAtomic(targetPath, value) {
-  await ensureDir2(path3.dirname(targetPath));
+  await ensureDir2(path2.dirname(targetPath));
+  const existingValue = await fs2.readFile(targetPath, "utf8").catch(() => null);
+  if (existingValue === value) {
+    return;
+  }
   const tempPath = `${targetPath}.${process.pid}.${randomUUID2()}.tmp`;
   try {
     await fs2.writeFile(tempPath, value, "utf8");
-    await fs2.rename(tempPath, targetPath);
+    try {
+      await fs2.rename(tempPath, targetPath);
+    } catch (error2) {
+      const code = error2 && typeof error2 === "object" && "code" in error2 ? String(error2.code) : "";
+      if (code !== "EPERM" && code !== "EEXIST") {
+        throw error2;
+      }
+      await fs2.rm(targetPath, { force: true }).catch(() => void 0);
+      await fs2.rename(tempPath, targetPath);
+    }
   } catch (error2) {
     await fs2.rm(tempPath, { force: true }).catch(() => void 0);
     throw error2;
@@ -1317,7 +1334,7 @@ async function appendLog(rootPath, log) {
   const paths = getBridgePaths(rootPath);
   await ensureDir2(paths.logsDir);
   const filename = `${log.timestamp.slice(0, 10)}.jsonl`;
-  await fs2.appendFile(path3.join(paths.logsDir, filename), `${JSON.stringify(log)}
+  await fs2.appendFile(path2.join(paths.logsDir, filename), `${JSON.stringify(log)}
 `, "utf8");
 }
 async function createMutationLog(rootPath, agentId, action, description, metadata) {
@@ -1357,6 +1374,7 @@ async function regenerateContextUnlocked(rootPath, budget) {
   const snapshot = await loadBridgeSnapshot(rootPath);
   const markdown = compileContextMarkdown(snapshot, { budget, generatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   await writeTextAtomic(paths.contextFile, markdown);
+  await syncInstructionArtifactsUnlocked(rootPath);
   return markdown;
 }
 async function regenerateContext(rootPath, budget) {
@@ -1364,7 +1382,7 @@ async function regenerateContext(rootPath, budget) {
 }
 async function ensureBridge(rootPath) {
   const root = await normalizeBridgeRoot(rootPath);
-  const bridgeFile = path3.join(root, "bridge.json");
+  const bridgeFile = path2.join(root, "bridge.json");
   if (!await fileExists2(bridgeFile)) {
     throw new BridgeRuntimeError("NOT_INITIALIZED", `No .aibridge directory found at ${root}.`, { rootPath: root });
   }
@@ -1374,11 +1392,11 @@ async function resolveJsonFileById(dirPath, idOrPrefix) {
   const entries = (await fs2.readdir(dirPath)).filter((name) => name.endsWith(".json")).sort((left, right) => left.localeCompare(right));
   const exact = entries.find((entry) => entry === `${idOrPrefix}.json`);
   if (exact) {
-    return path3.join(dirPath, exact);
+    return path2.join(dirPath, exact);
   }
   const matches = entries.filter((entry) => entry.startsWith(idOrPrefix));
   if (matches.length === 1) {
-    return path3.join(dirPath, matches[0]);
+    return path2.join(dirPath, matches[0]);
   }
   if (matches.length > 1) {
     throw new BridgeRuntimeError("VALIDATION_ERROR", `ID prefix "${idOrPrefix}" is ambiguous.`);
@@ -1458,7 +1476,7 @@ async function addTask(rootPath, payload) {
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
-    await writeJsonAtomic2(path3.join(paths.tasksDir, `${task.id}.json`), task);
+    await writeJsonAtomic2(path2.join(paths.tasksDir, `${task.id}.json`), task);
     if (task.agentId) {
       await createMutationLog(lockedRoot, task.agentId, "create", `Created task: ${task.title}`, { taskId: task.id });
     }
@@ -1528,7 +1546,7 @@ async function addMessage(rootPath, payload) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       acknowledged: false
     });
-    await writeJsonAtomic2(path3.join(paths.messagesDir, `${message.id}.json`), message);
+    await writeJsonAtomic2(path2.join(paths.messagesDir, `${message.id}.json`), message);
     await createMutationLog(lockedRoot, message.fromAgentId, "message", `Sent message: ${message.content}`, {
       messageId: message.id,
       toAgentId: message.toAgentId ?? "all"
@@ -1584,7 +1602,7 @@ async function createHandoff(rootPath, payload) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       relatedTaskIds: payload.relatedTaskIds?.length ? payload.relatedTaskIds : void 0
     });
-    await writeJsonAtomic2(path3.join(paths.handoffsDir, `${handoff.id}.json`), handoff);
+    await writeJsonAtomic2(path2.join(paths.handoffsDir, `${handoff.id}.json`), handoff);
     await createMutationLog(lockedRoot, handoff.fromAgentId, "handoff", `Created handoff to ${handoff.toAgentId}`, {
       handoffId: handoff.id
     });
@@ -1631,7 +1649,7 @@ async function readAgentSession(rootPath, idOrPrefix) {
 }
 async function writeAgentSession(rootPath, session) {
   const paths = getBridgePaths(rootPath);
-  await writeJsonAtomic2(path3.join(paths.sessionsDir, `${session.id}.json`), session);
+  await writeJsonAtomic2(path2.join(paths.sessionsDir, `${session.id}.json`), session);
 }
 async function listAgentSessions(rootPath, filters = {}) {
   const root = await ensureBridge(rootPath);
@@ -1822,7 +1840,7 @@ async function addDecision(rootPath, payload) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       status: payload.status ?? "proposed"
     });
-    await writeJsonAtomic2(path3.join(paths.decisionsDir, `${decision.id}.json`), decision);
+    await writeJsonAtomic2(path2.join(paths.decisionsDir, `${decision.id}.json`), decision);
     if (payload.agentId) {
       await createMutationLog(lockedRoot, payload.agentId, "decision", `Recorded decision: ${decision.title}`, {
         decisionId: decision.id,
@@ -1893,7 +1911,7 @@ async function addRelease(rootPath, payload) {
       createdAt,
       updatedAt: createdAt
     });
-    await writeJsonAtomic2(path3.join(paths.releasesDir, `${release.id}.json`), release);
+    await writeJsonAtomic2(path2.join(paths.releasesDir, `${release.id}.json`), release);
     if (release.createdBy) {
       await createMutationLog(
         lockedRoot,
@@ -1976,7 +1994,7 @@ async function addAnnouncement(rootPath, payload) {
       createdAt,
       updatedAt: createdAt
     });
-    await writeJsonAtomic2(path3.join(paths.announcementsDir, `${announcement.id}.json`), announcement);
+    await writeJsonAtomic2(path2.join(paths.announcementsDir, `${announcement.id}.json`), announcement);
     if (announcement.createdBy) {
       await createMutationLog(
         lockedRoot,
@@ -2043,7 +2061,7 @@ async function addConvention(rootPath, payload) {
       category: payload.category
     });
     await ensureDir2(paths.conventionsDir);
-    await writeJsonAtomic2(path3.join(paths.conventionsDir, `${convention.id}.json`), convention);
+    await writeJsonAtomic2(path2.join(paths.conventionsDir, `${convention.id}.json`), convention);
     const updatedConventions = [...snapshot.conventions, convention];
     await writeTextAtomic(paths.conventionsFile, conventionsToMarkdownDocument(updatedConventions));
     if (payload.addedBy) {
@@ -2067,7 +2085,7 @@ async function setConventions(rootPath, payload) {
     await ensureDir2(paths.conventionsDir);
     const existing = await fs2.readdir(paths.conventionsDir).catch(() => []);
     await Promise.all(
-      existing.filter((name) => name.endsWith(".json")).map((name) => fs2.rm(path3.join(paths.conventionsDir, name), { force: true }))
+      existing.filter((name) => name.endsWith(".json")).map((name) => fs2.rm(path2.join(paths.conventionsDir, name), { force: true }))
     );
     const conventions = payload.map(
       (item, index) => conventionSchema.parse({
@@ -2080,7 +2098,7 @@ async function setConventions(rootPath, payload) {
     );
     await Promise.all(
       conventions.map(
-        (convention) => writeJsonAtomic2(path3.join(paths.conventionsDir, `${convention.id}.json`), convention)
+        (convention) => writeJsonAtomic2(path2.join(paths.conventionsDir, `${convention.id}.json`), convention)
       )
     );
     await writeTextAtomic(paths.conventionsFile, conventionsToMarkdownDocument(conventions));
@@ -2123,8 +2141,49 @@ async function createMissingStructure(paths) {
     ensureDir2(paths.sessionsDir)
   ]);
 }
+async function writeGeneratedFile(targetPath, value) {
+  await ensureDir2(path2.dirname(targetPath));
+  await writeTextAtomic(targetPath, `${value.trimEnd()}
+`);
+}
+function cursorRuleMarkdown(template) {
+  return [
+    "---",
+    "description: AiBridge coordination protocol",
+    "alwaysApply: true",
+    "---",
+    "",
+    template.trim()
+  ].join("\n");
+}
+async function syncInstructionArtifactsUnlocked(rootPath) {
+  const snapshot = await loadBridgeSnapshot(rootPath);
+  const paths = getBridgePaths(rootPath);
+  const cursorTemplate = await readTextIfExists(path2.resolve(PROTOCOL_TEMPLATES_ROOT, "cursor.md"));
+  const codexTemplate = await readTextIfExists(path2.resolve(PROTOCOL_TEMPLATES_ROOT, "codex.md"));
+  const generatedNotice = "<!-- Generated by AiBridge. Regenerated from the local runtime. -->";
+  await writeGeneratedFile(
+    path2.join(paths.repoRoot, ".cursorrules"),
+    [generatedNotice, "", cursorTemplate || "# AiBridge Cursor Protocol"].join("\n")
+  );
+  await writeGeneratedFile(
+    path2.join(paths.repoRoot, ".cursor", "rules", "aibridge.mdc"),
+    [generatedNotice, "", cursorRuleMarkdown(cursorTemplate || "# AiBridge Cursor Protocol")].join("\n")
+  );
+  const antigravitySection = snapshot.bridge.agents.some((agent) => agent.kind === "antigravity") ? [
+    "",
+    "## Antigravity Adapter",
+    "",
+    "- Use `.aibridge/agents/antigravity.md` as the Antigravity-specific role file.",
+    "- Treat `AGENTS.md` as supportive context and the AiBridge launch prompt as primary."
+  ].join("\n") : "";
+  await writeGeneratedFile(
+    path2.join(paths.repoRoot, "AGENTS.md"),
+    [generatedNotice, "", codexTemplate || "# AiBridge Agent Protocol", antigravitySection].join("\n")
+  );
+}
 async function createAgentTemplate(kind, destinationPath) {
-  const templatePath = path3.resolve(PROTOCOL_TEMPLATES_ROOT, `${kind}.md`);
+  const templatePath = path2.resolve(PROTOCOL_TEMPLATES_ROOT, `${kind}.md`);
   if (await fileExists2(destinationPath)) {
     return false;
   }
@@ -2170,15 +2229,16 @@ async function addAgent(rootPath, agentKind) {
       agents: [...bridge.agents, newAgent]
     });
     await writeJsonAtomic2(paths.bridgeFile, updatedBridge);
-    const agentPath = path3.join(paths.agentsDir, `${kind}.md`);
+    const agentPath = path2.join(paths.agentsDir, `${kind}.md`);
     await ensureDir2(paths.agentsDir);
     await createAgentTemplate(kind, agentPath);
+    await syncInstructionArtifactsUnlocked(lockedRoot);
     return { added: true, agentId: kind };
   });
 }
 async function initBridge(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const root = path3.resolve(cwd, DEFAULT_BRIDGE_DIRNAME);
+  const root = path2.resolve(cwd, DEFAULT_BRIDGE_DIRNAME);
   await ensureDir2(root);
   return withBridgeWriteLock(root, async (lockedRoot) => {
     const paths = getBridgePaths(lockedRoot);
@@ -2189,7 +2249,7 @@ async function initBridge(options = {}) {
     if (!alreadyInitialized) {
       const bridge2 = bridgeSchema.parse({
         schemaVersion: "1.0",
-        projectName: options.name?.trim() || path3.basename(cwd),
+        projectName: options.name?.trim() || path2.basename(cwd),
         createdAt: (/* @__PURE__ */ new Date()).toISOString(),
         agents: uniqueAgentKinds(options.agents ?? ["cursor"]).map(buildAgent),
         setup: normalizedSetup
@@ -2217,11 +2277,12 @@ async function initBridge(options = {}) {
       bridge = updatedBridge;
     }
     for (const agent of bridge.agents) {
-      const destinationPath = path3.join(paths.agentsDir, `${agent.kind}.md`);
+      const destinationPath = path2.join(paths.agentsDir, `${agent.kind}.md`);
       if (await createAgentTemplate(agent.kind, destinationPath)) {
         createdFiles.push(destinationPath);
       }
     }
+    await syncInstructionArtifactsUnlocked(lockedRoot);
     const contextExisted = await fileExists2(paths.contextFile);
     const markdown = await regenerateContextUnlocked(lockedRoot);
     if (!alreadyInitialized || !contextExisted || markdown.length > 0) {
@@ -2295,20 +2356,21 @@ function parseConventionCategory(value) {
 // aibridge/services/local/service.ts
 import { createServer } from "http";
 import { promises as fs5 } from "fs";
-import path6 from "path";
+import path5 from "path";
 
 // aibridge/services/capture/capture.ts
 import { randomUUID as randomUUID3 } from "crypto";
 import { execFile } from "child_process";
 import { promises as fs3 } from "fs";
-import path4 from "path";
-import { fileURLToPath as fileURLToPath3 } from "url";
+import path3 from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
 import { promisify } from "util";
 var execFileAsync = promisify(execFile);
-var CURRENT_DIR = path4.dirname(fileURLToPath3(import.meta.url));
-var TOOL_ROOT = path4.resolve(CURRENT_DIR, "../../..");
-var CLI_ENTRY = path4.join(TOOL_ROOT, "aibridge", "cli", "bin", "aibridge.ts");
-var TSX_CLI = path4.join(TOOL_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
+var CURRENT_DIR = path3.dirname(fileURLToPath2(import.meta.url));
+var TOOL_ROOT = path3.basename(CURRENT_DIR) === "dist-cli" ? path3.resolve(CURRENT_DIR, "..") : path3.resolve(CURRENT_DIR, "../../..");
+var CLI_ENTRY = path3.join(TOOL_ROOT, "aibridge", "cli", "bin", "aibridge.ts");
+var TSX_CLI = path3.join(TOOL_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
+var IS_PUBLISHED_BUNDLE = path3.basename(CURRENT_DIR) === "dist-cli";
 var HOOK_MARKER = "# aibridge capture hook";
 var DEFAULT_HOOKS = ["post-commit", "post-merge", "post-checkout"];
 var DEFAULT_WATCH_DEBOUNCE_MS = 1500;
@@ -2325,7 +2387,7 @@ var IGNORED_PREFIXES = [
   ".next/"
 ];
 function repoRootFromBridgeRoot(bridgeRoot2) {
-  return path4.basename(bridgeRoot2) === ".aibridge" ? path4.dirname(bridgeRoot2) : bridgeRoot2;
+  return path3.basename(bridgeRoot2) === ".aibridge" ? path3.dirname(bridgeRoot2) : bridgeRoot2;
 }
 function normalizePathForPattern(value) {
   return value.replace(/\\/g, "/").toLowerCase();
@@ -2359,7 +2421,7 @@ function isIgnoredPath(relativePath) {
   return normalized.endsWith(".log");
 }
 async function resolveGitDir(repoRoot) {
-  const gitPath = path4.join(repoRoot, ".git");
+  const gitPath = path3.join(repoRoot, ".git");
   const stats = await fs3.stat(gitPath).catch(() => null);
   if (!stats) {
     throw new BridgeRuntimeError("NOT_FOUND", `No .git directory found at ${repoRoot}.`);
@@ -2372,7 +2434,7 @@ async function resolveGitDir(repoRoot) {
   if (!match?.[1]) {
     throw new BridgeRuntimeError("INVALID_STATE", `Unsupported .git file format at ${gitPath}.`);
   }
-  return path4.resolve(repoRoot, match[1].trim());
+  return path3.resolve(repoRoot, match[1].trim());
 }
 async function pathExists(targetPath) {
   try {
@@ -2383,8 +2445,21 @@ async function pathExists(targetPath) {
   }
 }
 function buildHookScript(repoRoot, hookName) {
-  const toolRoot = TOOL_ROOT.replace(/\\/g, "/");
   const targetRoot = repoRoot.replace(/\\/g, "/");
+  if (IS_PUBLISHED_BUNDLE) {
+    return `#!/bin/sh
+${HOOK_MARKER}
+set -e
+HOOK_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+BACKUP="$HOOK_DIR/${hookName}.aibridge.backup"
+if [ -x "$BACKUP" ]; then
+  "$BACKUP" "$@"
+fi
+cd "${targetRoot}" || exit 1
+aibridge capture hook ${hookName} "$@" || true
+`;
+  }
+  const toolRoot = TOOL_ROOT.replace(/\\/g, "/");
   return `#!/bin/sh
 ${HOOK_MARKER}
 set -e
@@ -2403,7 +2478,7 @@ async function sleep2(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function installManagedHook(hooksDir, repoRoot, hookName) {
-  const hookPath = path4.join(hooksDir, hookName);
+  const hookPath = path3.join(hooksDir, hookName);
   const backupPath = `${hookPath}.aibridge.backup`;
   const nextScript = buildHookScript(repoRoot, hookName);
   let state = "installed";
@@ -2556,8 +2631,8 @@ async function collectWorkspaceSnapshot(repoRoot) {
   async function walk(currentPath) {
     const entries = await fs3.readdir(currentPath, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = path4.join(currentPath, entry.name);
-      const relativePath = path4.relative(repoRoot, fullPath);
+      const fullPath = path3.join(currentPath, entry.name);
+      const relativePath = path3.relative(repoRoot, fullPath);
       if (isIgnoredPath(relativePath)) {
         continue;
       }
@@ -2605,7 +2680,7 @@ async function installCaptureHooks(options = {}) {
   await loadBridgeSnapshot(bridgeRoot2);
   const repoRoot = repoRootFromBridgeRoot(bridgeRoot2);
   const gitDir = await resolveGitDir(repoRoot);
-  const hooksDir = path4.join(gitDir, "hooks");
+  const hooksDir = path3.join(gitDir, "hooks");
   await fs3.mkdir(hooksDir, { recursive: true });
   const installed = [];
   const updated = [];
@@ -2694,7 +2769,7 @@ async function runCaptureDoctor(options = {}) {
   let bridgeRoot2 = "";
   try {
     bridgeRoot2 = await resolveBridgeRoot({ cwd });
-    await fs3.access(path4.join(bridgeRoot2, "bridge.json"));
+    await fs3.access(path3.join(bridgeRoot2, "bridge.json"));
     checks.push({ name: "bridge", ok: true, details: `Bridge found at ${bridgeRoot2}` });
   } catch (error2) {
     checks.push({ name: "bridge", ok: false, details: error2.message });
@@ -2703,10 +2778,10 @@ async function runCaptureDoctor(options = {}) {
     try {
       const repoRoot = repoRootFromBridgeRoot(bridgeRoot2);
       const gitDir = await resolveGitDir(repoRoot);
-      const hooksDir = path4.join(gitDir, "hooks");
+      const hooksDir = path3.join(gitDir, "hooks");
       checks.push({ name: "git", ok: true, details: `Git hooks directory: ${hooksDir}` });
       for (const hookName of DEFAULT_HOOKS) {
-        const hookPath = path4.join(hooksDir, hookName);
+        const hookPath = path3.join(hooksDir, hookName);
         const installed = await pathExists(hookPath) ? (await fs3.readFile(hookPath, "utf8")).includes(HOOK_MARKER) : false;
         checks.push({
           name: `hook:${hookName}`,
@@ -2717,11 +2792,19 @@ async function runCaptureDoctor(options = {}) {
     } catch (error2) {
       checks.push({ name: "git", ok: false, details: error2.message });
     }
-    checks.push({
-      name: "tsx",
-      ok: await pathExists(TSX_CLI),
-      details: await pathExists(TSX_CLI) ? `Found ${TSX_CLI}` : `Not found: ${TSX_CLI}`
-    });
+    if (IS_PUBLISHED_BUNDLE) {
+      checks.push({
+        name: "tsx",
+        ok: true,
+        details: "Using global aibridge for hooks (tsx not required)"
+      });
+    } else {
+      checks.push({
+        name: "tsx",
+        ok: await pathExists(TSX_CLI),
+        details: await pathExists(TSX_CLI) ? `Found ${TSX_CLI}` : `Not found: ${TSX_CLI}`
+      });
+    }
     const captureStatus = await readCaptureStatus(bridgeRoot2);
     checks.push({
       name: "capture-status",
@@ -3486,7 +3569,7 @@ function buildSetupResult(questionnaire) {
 }
 
 // aibridge/setup/local.ts
-import path5 from "path";
+import path4 from "path";
 import { promises as fs4 } from "fs";
 function resolveLeadAgentId(agentKinds2) {
   return agentKinds2[0] ?? "cursor";
@@ -3495,7 +3578,7 @@ async function initializeLocalBridgeFromSetup(questionnaire, options = {}) {
   const result = createSetupResult(questionnaire);
   const cwd = options.cwd ?? process.cwd();
   if (options.clearExistingData) {
-    await fs4.rm(path5.join(cwd, ".aibridge"), { recursive: true, force: true });
+    await fs4.rm(path4.join(cwd, ".aibridge"), { recursive: true, force: true });
   }
   const initResult = await initBridge({
     cwd,
@@ -3619,10 +3702,10 @@ function parseUrl(request) {
   return new URL(request.url ?? "/", "http://127.0.0.1");
 }
 function normalizeServiceCwd(cwd) {
-  return path6.resolve(cwd ?? process.cwd());
+  return path5.resolve(cwd ?? process.cwd());
 }
 function normalizeComparisonPath(targetPath) {
-  return path6.normalize(targetPath).toLowerCase();
+  return path5.normalize(targetPath).toLowerCase();
 }
 function serviceUrl(host, port) {
   return `http://${host}:${port}`;
@@ -3701,7 +3784,7 @@ async function computeRevision(rootPath) {
     const entries = await fs5.readdir(directoryPath, { withFileTypes: true });
     const files = [];
     for (const entry of entries) {
-      const fullPath = path6.join(directoryPath, entry.name);
+      const fullPath = path5.join(directoryPath, entry.name);
       if (entry.isDirectory()) {
         files.push(...await walk(fullPath));
         continue;
@@ -3831,7 +3914,7 @@ async function handleRequest(request, response, options) {
   }
   if (request.method === "GET" && url.pathname === "/bridge/capture/status") {
     const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
-    const capture = await getCaptureStatus({ cwd: path6.dirname(rootPath) });
+    const capture = await getCaptureStatus({ cwd: path5.dirname(rootPath) });
     sendJson(response, 200, {
       data: capture,
       runtime,
@@ -4680,7 +4763,7 @@ function parseTemplateFlag(flags) {
   return flagString(flags, "template");
 }
 function defaultSetupProjectName() {
-  return path7.basename(process.cwd()) || "aibridge-project";
+  return path6.basename(process.cwd()) || "aibridge-project";
 }
 function resolveAgentFlag(flags) {
   return flagString(flags, "from") ?? flagString(flags, "agent") ?? process.env.AIBRIDGE_AGENT?.trim();
@@ -4981,12 +5064,12 @@ async function writeIfNeeded(outputPath, markdown) {
   if (!outputPath) {
     return;
   }
-  const resolved = path7.resolve(process.cwd(), outputPath);
-  await fs6.mkdir(path7.dirname(resolved), { recursive: true });
+  const resolved = path6.resolve(process.cwd(), outputPath);
+  await fs6.mkdir(path6.dirname(resolved), { recursive: true });
   await fs6.writeFile(resolved, markdown, "utf8");
 }
 function bridgeRoot() {
-  return path7.resolve(process.cwd(), ".aibridge");
+  return path6.resolve(process.cwd(), ".aibridge");
 }
 function renderCreatedEntity(kind, entityId, details) {
   const lines = [successLine(`${kind} ready`), kv("ID           ", entityId)];
@@ -4998,7 +5081,92 @@ function renderCreatedEntity(kind, entityId, details) {
   return `${lines.join("\n")}
 `;
 }
-var CLI_VERSION = true ? "0.1.7" : "0.0.0";
+var CLI_VERSION = true ? "0.1.11" : "0.0.0";
+var VERSION_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1e3;
+function parseSemver(value) {
+  const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) {
+    return void 0;
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3])
+  };
+}
+function isSemverNewer(nextVersion, currentVersion) {
+  const next = parseSemver(nextVersion);
+  const current = parseSemver(currentVersion);
+  if (!next || !current) {
+    return false;
+  }
+  if (next.major !== current.major) {
+    return next.major > current.major;
+  }
+  if (next.minor !== current.minor) {
+    return next.minor > current.minor;
+  }
+  return next.patch > current.patch;
+}
+async function maybeWarnAboutNewVersion(io, flags) {
+  if (process.env.NODE_ENV === "test" || flagBoolean(flags, "json")) {
+    return;
+  }
+  try {
+    const cacheDir = path6.join(os.homedir(), ".aibridge");
+    const cacheFile = path6.join(cacheDir, "version-check.json");
+    const now = Date.now();
+    let cached;
+    try {
+      const raw = await fs6.readFile(cacheFile, "utf8");
+      cached = JSON.parse(raw);
+    } catch {
+      cached = void 0;
+    }
+    if (cached?.latest && isSemverNewer(cached.latest, CLI_VERSION)) {
+      io.stderr(
+        `${warning("Update available:")} ${dim(CLI_VERSION)} ${dim("->")} ${success(cached.latest)} ${dim(
+          "(run: npm update -g @zerwonenetwork/aibridge-core)"
+        )}
+`
+      );
+      if (now - cached.checkedAt < VERSION_CHECK_INTERVAL_MS) {
+        return;
+      }
+    } else if (cached && now - cached.checkedAt < VERSION_CHECK_INTERVAL_MS) {
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1800);
+    let response;
+    try {
+      response = await fetch("https://registry.npmjs.org/@zerwonenetwork%2Faibridge-core/latest", {
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    const latest = typeof payload.version === "string" ? payload.version : void 0;
+    if (!latest) {
+      return;
+    }
+    await fs6.mkdir(cacheDir, { recursive: true });
+    await fs6.writeFile(cacheFile, JSON.stringify({ checkedAt: now, latest }, null, 2), "utf8");
+    if (isSemverNewer(latest, CLI_VERSION)) {
+      io.stderr(
+        `${warning("Update available:")} ${dim(CLI_VERSION)} ${dim("->")} ${success(latest)} ${dim(
+          "(run: npm update -g @zerwonenetwork/aibridge-core)"
+        )}
+`
+      );
+    }
+  } catch {
+  }
+}
 async function runCli(rawArgs, io) {
   const { positionals, flags } = parseArgs(rawArgs);
   const [command, subcommand, ...rest] = positionals;
@@ -5011,6 +5179,7 @@ async function runCli(rawArgs, io) {
     io.stdout(helpText());
     return 0;
   }
+  await maybeWarnAboutNewVersion(io, flags);
   switch (command) {
     case "init": {
       if (usesSetupFlow(flags)) {

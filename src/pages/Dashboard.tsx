@@ -8,6 +8,7 @@ import { TaskBoard } from "@/components/dashboard/TaskBoard";
 import { AgentsView } from "@/components/dashboard/AgentsView";
 import { ConventionsView } from "@/components/dashboard/ConventionsView";
 import { DecisionsView } from "@/components/dashboard/DecisionsView";
+import { InboxView } from "@/components/dashboard/InboxView";
 import { OverviewView } from "@/components/dashboard/OverviewView";
 import { MessagesView } from "@/components/dashboard/MessagesView";
 import { SettingsView } from "@/components/dashboard/SettingsView";
@@ -17,12 +18,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
-import { DatabaseZap, RefreshCw, TriangleAlert } from "lucide-react";
+import { Copy, DatabaseZap, RefreshCw, TriangleAlert } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
-export type DashboardView = "overview" | "tasks" | "activity" | "messages" | "agents" | "conventions" | "decisions" | "settings";
+export type DashboardView = "overview" | "inbox" | "tasks" | "activity" | "messages" | "agents" | "conventions" | "decisions" | "settings";
 
 export const LOCAL_DASHBOARD_VIEWS = [
   "overview",
+  "inbox",
   "tasks",
   "activity",
   "messages",
@@ -48,6 +51,7 @@ const Dashboard = () => {
       return false;
     }
   });
+  const { toast } = useToast();
 
   const {
     status,
@@ -81,6 +85,28 @@ const Dashboard = () => {
 
   const isAdmin = status.access.canMutate;
   const unreadCount = status.messages.filter(m => !m.acknowledged).length;
+
+  const repairPrompt = useMemo(() => {
+    const invalidIssues = (status.issues ?? []).filter((issue) => /invalid|unable to read|unable to parse/i.test(issue));
+    if (invalidIssues.length === 0) {
+      return "";
+    }
+
+    return [
+      "AiBridge detected invalid or manually edited protocol files.",
+      "",
+      "Do not hand-edit `.aibridge/*.json` files.",
+      "Re-read `.aibridge/CONTEXT.md`, then recreate the invalid state using the canonical AiBridge CLI only.",
+      "",
+      "Use this command shape:",
+      'npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge <command>"',
+      "",
+      "Detected issues:",
+      ...invalidIssues.map((issue) => `- ${issue}`),
+      "",
+      "After repairing the state, regenerate context.",
+    ].join("\n");
+  }, [status.issues]);
 
   const handleViewChange = (view: DashboardView) => {
     setActiveView(view);
@@ -121,6 +147,12 @@ const Dashboard = () => {
           isSample={runtime.isSample}
           onSwitchToSample={() => setLocalSource("sample")}
           onOpenSettings={() => handleViewChange("settings")}
+          onUseWorkspace={() => setLocalSource("workspace")}
+          onUseCustomWorkspace={(workspacePath) => {
+            setCustomRoot(workspacePath);
+            setLocalSource("custom");
+          }}
+          onRetry={refresh}
           onLocalInitialized={handleLocalSetupInitialized}
         />
       );
@@ -129,6 +161,8 @@ const Dashboard = () => {
     switch (activeView) {
       case "overview":
         return <OverviewView status={status} onNavigate={handleViewChange} />;
+      case "inbox":
+        return <InboxView status={status} onNavigate={handleViewChange} />;
       case "tasks":
         return <TaskBoard tasks={status.tasks} agents={status.context.activeAgents} onStatusChange={updateTaskStatus} onAddTask={addTask} />;
       case "activity":
@@ -142,6 +176,7 @@ const Dashboard = () => {
             handoffs={status.handoffs}
             logs={status.logs}
             tasks={status.tasks}
+            messages={status.messages}
             sessions={status.sessions}
             onLaunchSession={launchAgentSession}
             onStartSession={startAgentSession}
@@ -264,11 +299,41 @@ const Dashboard = () => {
 
               {!error && status.issues && status.issues.length > 0 && (
                 <Card className="bg-card border-amber-500/30 mb-4">
-                  <CardContent className="p-4 space-y-1 text-sm">
+                  <CardContent className="p-4 space-y-3 text-sm">
                     <p className="font-medium text-foreground">Local bridge notices</p>
                     {status.issues.slice(0, 3).map(issue => (
                       <p key={issue} className="text-muted-foreground">{issue}</p>
                     ))}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleViewChange("inbox")}>
+                        Open inbox
+                      </Button>
+                      {repairPrompt ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="gap-1.5 text-xs"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(repairPrompt);
+                              toast({
+                                title: "Repair prompt copied",
+                                description: "Paste it into the agent that wrote the invalid bridge state.",
+                              });
+                            } catch {
+                              toast({
+                                title: "Unable to copy repair prompt",
+                                description: "Clipboard access is unavailable in this browser.",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          Copy repair prompt
+                        </Button>
+                      ) : null}
+                    </div>
                   </CardContent>
                 </Card>
               )}

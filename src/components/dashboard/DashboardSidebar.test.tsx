@@ -23,6 +23,7 @@ describe("DashboardSidebar", () => {
     );
 
     expect(screen.getByText("Overview")).toBeInTheDocument();
+    expect(screen.getByText("Inbox")).toBeInTheDocument();
     expect(screen.getByText("Tasks")).toBeInTheDocument();
     expect(screen.getByText("Messages")).toBeInTheDocument();
     expect(screen.getByText("Agents")).toBeInTheDocument();

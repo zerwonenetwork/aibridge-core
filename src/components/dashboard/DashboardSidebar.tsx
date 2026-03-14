@@ -1,4 +1,4 @@
-import { Activity, CheckSquare, LayoutDashboard, Bot, BookOpen, Scale, ChevronLeft, MessageSquare, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Activity, CheckSquare, LayoutDashboard, Bot, BookOpen, Scale, ChevronLeft, MessageSquare, Settings, PanelLeftClose, PanelLeftOpen, Inbox } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { DashboardView } from "@/pages/Dashboard";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ type SidebarNavItem = { id: DashboardView; label: string; icon: React.ElementTyp
 
 const coreNavItems: SidebarNavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "activity", label: "Activity", icon: Activity },
   { id: "messages", label: "Messages", icon: MessageSquare },

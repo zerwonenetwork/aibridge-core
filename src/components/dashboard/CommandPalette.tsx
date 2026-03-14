@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { LayoutDashboard, CheckSquare, Activity, MessageSquare, Bot, BookOpen, Scale, Search, Settings } from "lucide-react";
+import { LayoutDashboard, CheckSquare, Activity, MessageSquare, Bot, BookOpen, Scale, Search, Settings, Inbox } from "lucide-react";
 import type { DashboardView } from "@/pages/Dashboard";
 import type { AibridgeTask } from "@/lib/aibridge/types";
 
@@ -11,6 +11,7 @@ interface CommandPaletteProps {
 
 const views: { id: DashboardView; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "activity", label: "Activity", icon: Activity },
   { id: "messages", label: "Messages", icon: MessageSquare },

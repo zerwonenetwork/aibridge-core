@@ -1,7 +1,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, CheckSquare, Bot, ArrowRight, BookOpen, MessageSquare } from "lucide-react";
+import { Activity, CheckSquare, Bot, ArrowRight, BookOpen, MessageSquare, Inbox } from "lucide-react";
 import type { AibridgeStatus } from "@/lib/aibridge/types";
 import type { DashboardView } from "@/pages/Dashboard";
 import { getAgentColor } from "@/lib/aibridge/agent-colors";
@@ -20,6 +20,7 @@ export const OverviewView = React.forwardRef<HTMLDivElement, OverviewViewProps>(
   const { context, logs, tasks, handoffs, conventions, decisions, messages } = status;
 
   const unreadMessages = messages.filter(m => !m.acknowledged).length;
+  const inboxCount = unreadMessages + handoffs.length + (status.issues?.length ?? 0) + status.sessions.filter(s => s.status === "stale" || s.status === "failed").length;
 
   const statCards = [
     { label: "Pending", value: context.taskCounts.pending, color: "text-yellow-400", large: false },
@@ -44,15 +45,15 @@ export const OverviewView = React.forwardRef<HTMLDivElement, OverviewViewProps>(
         ))}
       </motion.div>
 
-      {/* Unread messages banner */}
-      {unreadMessages > 0 && (
+      {/* Inbox banner */}
+      {inboxCount > 0 && (
         <motion.div variants={item}>
           <button
-            onClick={() => onNavigate("messages")}
+            onClick={() => onNavigate("inbox")}
             className="w-full flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 hover:bg-primary/10 transition-colors text-left"
           >
-            <MessageSquare className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-sm text-foreground font-medium">{unreadMessages} unread message{unreadMessages > 1 ? "s" : ""}</span>
+            <Inbox className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-sm text-foreground font-medium">{inboxCount} items need review</span>
             <ArrowRight className="w-4 h-4 text-primary ml-auto" />
           </button>
         </motion.div>

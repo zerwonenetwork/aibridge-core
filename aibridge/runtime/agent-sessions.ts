@@ -1,6 +1,3 @@
-import path from "node:path";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import type {
   AibridgeAgent,
   AibridgeAgentLaunchSource,
@@ -12,8 +9,6 @@ import type {
 
 const ACTIVE_STALE_MS = 10 * 60 * 1000;
 const PENDING_STALE_MS = 5 * 60 * 1000;
-const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
-const CLI_ENTRY_PATH = path.resolve(RUNTIME_DIR, "../cli/bin/aibridge.ts");
 
 function pickLatestTimestamp(...values: Array<string | undefined>) {
   return values.filter(Boolean).sort((left, right) => String(right).localeCompare(String(left)))[0];
@@ -51,10 +46,11 @@ function summarizeRole(agent: AibridgeAgent, snapshot: AibridgeBridgeSnapshot) {
 }
 
 export function buildCliCommandHint() {
-  if (existsSync(CLI_ENTRY_PATH)) {
-    return `node ${CLI_ENTRY_PATH.replace(/\\/g, "/")} `;
-  }
   return "aibridge ";
+}
+
+export function buildCliFallbackCommand(subcommand: string) {
+  return `npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge ${subcommand}"`;
 }
 
 export function buildLaunchInstructionSet(
@@ -69,6 +65,7 @@ export function buildLaunchInstructionSet(
   const unreadMessages = unreadMessagesForAgent(snapshot, agent.id).slice(0, 2);
   const handoffs = openHandoffsForAgent(snapshot, agent.id).slice(0, 2);
   const cliCommand = buildCliCommandHint();
+  const fallbackStartCommand = buildCliFallbackCommand(`agent start --session ${sessionId}`);
   const firstSteps = [
     "Read .aibridge/CONTEXT.md before making changes.",
     "Inspect the repo and confirm the current working surface before coding.",
@@ -80,10 +77,11 @@ export function buildLaunchInstructionSet(
     "If you are blocked or handing off, create a handoff or warning message in AiBridge.",
     "Regenerate context after meaningful state changes.",
   ];
-  const supportiveFile = toolKind === "cursor" ? ".cursorrules" : "AGENTS.md";
+  const supportiveFile = toolKind === "cursor" ? ".cursor/rules/aibridge.mdc" : "AGENTS.md";
+  const toolLabel = toolKind === "cursor" ? "Cursor" : toolKind === "codex" ? "Codex" : "Antigravity";
   const promptSections = [
     `You are operating as the ${agent.name} agent in the AiBridge workspace "${snapshot.bridge.projectName}".`,
-    `Tool: ${toolKind}. Launch source: ${launchSource}.`,
+    `Tool: ${toolLabel.toLowerCase()}. Launch source: ${launchSource}.`,
     "",
     "Read these first:",
     "- .aibridge/CONTEXT.md",
@@ -107,9 +105,11 @@ export function buildLaunchInstructionSet(
     "",
     "Required workflow:",
     ...firstSteps.map((step) => `- ${step}`),
+    `- If \`aibridge\` is not on PATH, use: ${fallbackStartCommand}`,
     ...checklist.map((step) => `- ${step}`),
     "",
     `Canonical CLI path: ${cliCommand}<command>`,
+    `Fallback package path: ${buildCliFallbackCommand("<command>")}`,
   ];
 
   return {
@@ -139,6 +139,7 @@ function buildRecoveryPromptFromReason(
   const unreadMessages = unreadMessagesForAgent(snapshot, session.agentId).slice(0, 3);
   const handoffs = openHandoffsForAgent(snapshot, session.agentId).slice(0, 2);
   const cliCommand = buildCliCommandHint();
+  const fallbackHeartbeatCommand = buildCliFallbackCommand(`agent heartbeat --session ${session.id}`);
 
   return [
     `Resume your AiBridge session for agent ${session.agentId}.`,
@@ -148,6 +149,7 @@ function buildRecoveryPromptFromReason(
     "- Re-read .aibridge/CONTEXT.md and .aibridge/CONVENTIONS.md.",
     "- Compare your current understanding with the latest repo state.",
     `- Confirm recovery by running: ${cliCommand}agent heartbeat --session ${session.id}`,
+    `- If \`aibridge\` is not on PATH, use: ${fallbackHeartbeatCommand}`,
     "",
     assignedTasks.length > 0
       ? `Current assigned tasks:\n${assignedTasks.map((task) => `- ${task.title} [${task.status}]`).join("\n")}`

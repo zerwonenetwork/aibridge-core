@@ -31,16 +31,21 @@ describe("OnboardingGuide", () => {
         adminToken=""
         onSwitchToSample={vi.fn()}
         onOpenSettings={vi.fn()}
+        onUseWorkspace={vi.fn()}
+        onUseCustomWorkspace={vi.fn()}
+        onRetry={vi.fn()}
         onLocalInitialized={vi.fn()}
       />,
     );
 
     expect(screen.getByText("No bridge found")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /use current workspace/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /start guided setup/i }));
     expect(screen.getByText("Embedded Local Setup Wizard")).toBeInTheDocument();
   });
 
-  it("keeps service-down onboarding as instructions only", () => {
+  it("keeps service-down onboarding as UI-first instructions", () => {
+    const onRetry = vi.fn();
     render(
       <OnboardingGuide
         error={new LocalBridgeClientError("SERVICE_UNAVAILABLE", "Service unavailable.")}
@@ -50,12 +55,17 @@ describe("OnboardingGuide", () => {
         adminToken=""
         onSwitchToSample={vi.fn()}
         onOpenSettings={vi.fn()}
+        onUseWorkspace={vi.fn()}
+        onUseCustomWorkspace={vi.fn()}
+        onRetry={onRetry}
         onLocalInitialized={vi.fn()}
       />,
     );
 
     expect(screen.getByText("Service not reachable")).toBeInTheDocument();
     expect(screen.queryByText("Embedded Local Setup Wizard")).not.toBeInTheDocument();
-    expect(screen.getByText("npx aibridge serve")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /retry connection/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/aibridge serve/)).toBeInTheDocument();
   });
 });

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.12 — 2026-03-14
+
+### Changed
+- Dashboard + runtime updates (agents/inbox/session surfaces) and docs refresh.
+
 ## 0.1.11 — 2026-03-14
 
 ### Fixed
