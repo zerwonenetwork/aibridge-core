@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.9 — 2026-03-08
+
+### Added
+- **Postinstall steps** — Install/update now prints step status: setup protocol templates, register CLI binary, post-install checks.
+- **Update-available warning** — CLI checks npm for a newer version (cached 12h); prints a one-line hint when an update is available.
+
 ## 0.1.8 — 2026-03-08
 
 ### Added
