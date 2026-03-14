@@ -2147,6 +2147,35 @@ function uniqueAgentKinds(agentIds) {
   }
   return normalized.length > 0 ? normalized : ["cursor"];
 }
+async function addAgent(rootPath, agentKind) {
+  const kind = agentKind.trim().toLowerCase();
+  if (!agentKinds.includes(kind)) {
+    throw new BridgeRuntimeError(
+      "VALIDATION_ERROR",
+      `Unsupported agent kind: ${agentKind}. Use one of: ${agentKinds.join(", ")}`
+    );
+  }
+  return withBridgeWriteLock(rootPath, async (lockedRoot) => {
+    const paths = getBridgePaths(lockedRoot);
+    if (!await fileExists2(paths.bridgeFile)) {
+      return { added: false, reason: "No bridge found. Run `aibridge init` first." };
+    }
+    const bridge = await readBridgeConfig(paths, []);
+    if (bridge.agents.some((a) => a.kind === kind)) {
+      return { added: false, reason: `Agent ${kind} is already in the bridge.` };
+    }
+    const newAgent = buildAgent(kind);
+    const updatedBridge = bridgeSchema.parse({
+      ...bridge,
+      agents: [...bridge.agents, newAgent]
+    });
+    await writeJsonAtomic2(paths.bridgeFile, updatedBridge);
+    const agentPath = path3.join(paths.agentsDir, `${kind}.md`);
+    await ensureDir2(paths.agentsDir);
+    await createAgentTemplate(kind, agentPath);
+    return { added: true, agentId: kind };
+  });
+}
 async function initBridge(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const root = path3.resolve(cwd, DEFAULT_BRIDGE_DIRNAME);
@@ -4916,6 +4945,7 @@ function helpText() {
   aibridge convention show [--json]
   aibridge convention list [--json]
   aibridge convention sync
+  aibridge agent add <agent-id>
   aibridge agent launch --agent <agent-id> --tool <cursor|codex> [--source <dashboard|app|cli>] [--json]
   aibridge agent start --session <session-id>
   aibridge agent heartbeat --session <session-id>
@@ -4968,9 +4998,15 @@ function renderCreatedEntity(kind, entityId, details) {
   return `${lines.join("\n")}
 `;
 }
+var CLI_VERSION = true ? "0.1.7" : "0.0.0";
 async function runCli(rawArgs, io) {
   const { positionals, flags } = parseArgs(rawArgs);
   const [command, subcommand, ...rest] = positionals;
+  if (command === "-v" || flagBoolean(flags, "version")) {
+    io.stdout(`${CLI_VERSION}
+`);
+    return 0;
+  }
   if (!command || command === "help" || command === "--help" || command === "-h") {
     io.stdout(helpText());
     return 0;
@@ -5261,6 +5297,18 @@ async function runCli(rawArgs, io) {
     }
     case "agent": {
       const normalizedSubcommand = subcommand ?? "status";
+      if (normalizedSubcommand === "add") {
+        const agentKind = requireValue(rest[0], "Agent kind is required (e.g. cursor, claude, codex, antigravity, copilot, windsurf, custom).");
+        const result = await addAgent(bridgeRoot(), agentKind);
+        if (result.added) {
+          io.stdout(`${successLine(`Added agent ${result.agentId}`)}
+`);
+        } else {
+          io.stdout(`${info(result.reason)}
+`);
+        }
+        return 0;
+      }
       if (normalizedSubcommand === "launch") {
         const agentId = requireValue(flagString(flags, "agent"), "`--agent` is required.");
         const toolKind = parseAgentToolKind(flagString(flags, "tool")) ?? "cursor";
