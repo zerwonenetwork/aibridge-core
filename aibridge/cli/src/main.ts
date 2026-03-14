@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import {
@@ -76,6 +77,7 @@ import {
   table,
   statusBadge,
   truncateText,
+  warning,
 } from "./style";
 
 interface ParsedArgs {
@@ -566,6 +568,102 @@ function renderCreatedEntity(kind: string, entityId: string, details: Array<[str
 declare const __AIBRIDGE_CLI_VERSION__: string | undefined;
 
 const CLI_VERSION = typeof __AIBRIDGE_CLI_VERSION__ === "string" ? __AIBRIDGE_CLI_VERSION__ : "0.0.0";
+const VERSION_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+function parseSemver(value: string) {
+  const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function isSemverNewer(nextVersion: string, currentVersion: string) {
+  const next = parseSemver(nextVersion);
+  const current = parseSemver(currentVersion);
+  if (!next || !current) {
+    return false;
+  }
+
+  if (next.major !== current.major) {
+    return next.major > current.major;
+  }
+  if (next.minor !== current.minor) {
+    return next.minor > current.minor;
+  }
+  return next.patch > current.patch;
+}
+
+async function maybeWarnAboutNewVersion(io: { stderr: (text: string) => void }, flags: ParsedArgs["flags"]) {
+  if (process.env.NODE_ENV === "test" || flagBoolean(flags, "json")) {
+    return;
+  }
+
+  try {
+    const cacheDir = path.join(os.homedir(), ".aibridge");
+    const cacheFile = path.join(cacheDir, "version-check.json");
+    const now = Date.now();
+
+    let cached: { checkedAt: number; latest?: string } | undefined;
+    try {
+      const raw = await fs.readFile(cacheFile, "utf8");
+      cached = JSON.parse(raw) as { checkedAt: number; latest?: string };
+    } catch {
+      cached = undefined;
+    }
+
+    if (cached?.latest && isSemverNewer(cached.latest, CLI_VERSION)) {
+      io.stderr(
+        `${warning("Update available:")} ${dim(CLI_VERSION)} ${dim("->")} ${success(cached.latest)} ${dim(
+          "(run: npm update -g @zerwonenetwork/aibridge-core)",
+        )}\n`,
+      );
+      if (now - cached.checkedAt < VERSION_CHECK_INTERVAL_MS) {
+        return;
+      }
+    } else if (cached && now - cached.checkedAt < VERSION_CHECK_INTERVAL_MS) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1800);
+    let response: Response;
+    try {
+      response = await fetch("https://registry.npmjs.org/@zerwonenetwork%2Faibridge-core/latest", {
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as { version?: string };
+    const latest = typeof payload.version === "string" ? payload.version : undefined;
+    if (!latest) {
+      return;
+    }
+
+    await fs.mkdir(cacheDir, { recursive: true });
+    await fs.writeFile(cacheFile, JSON.stringify({ checkedAt: now, latest }, null, 2), "utf8");
+
+    if (isSemverNewer(latest, CLI_VERSION)) {
+      io.stderr(
+        `${warning("Update available:")} ${dim(CLI_VERSION)} ${dim("->")} ${success(latest)} ${dim(
+          "(run: npm update -g @zerwonenetwork/aibridge-core)",
+        )}\n`,
+      );
+    }
+  } catch {
+    // Never block CLI actions because of update checks.
+  }
+}
 
 export async function runCli(rawArgs: string[], io: { stdout: (text: string) => void; stderr: (text: string) => void }) {
   const { positionals, flags } = parseArgs(rawArgs);
@@ -580,6 +678,8 @@ export async function runCli(rawArgs: string[], io: { stdout: (text: string) => 
     io.stdout(helpText());
     return 0;
   }
+
+  await maybeWarnAboutNewVersion(io, flags);
 
   switch (command) {
     case "init": {

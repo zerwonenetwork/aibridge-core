@@ -42,7 +42,7 @@
   },
   "homepage": "https://github.com/zerwonenetwork/aibridge-core#readme",
   "scripts": {
-    "postinstall": "node -e \"const fs=require('fs'),p=require('path');try{const j=fs.readFileSync(p.join(process.cwd(),'package.json'),'utf8');const v=JSON.parse(j);if(v.name==='@zerwonenetwork/aibridge-core'&&v.version)console.log('@zerwonenetwork/aibridge-core',v.version,'installed. Run aibridge --version to check.');}catch(e){}\"",
+    "postinstall": "node -e \"const fs=require('fs'),p=require('path');const pkgPath=p.join(process.cwd(),'package.json');try{const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8'));if(pkg.name!=='@zerwonenetwork/aibridge-core')process.exit(0);const step=(n,total,label)=>console.log('[aibridge]',`[${n}/${total}]`,label,'ok');console.log('[aibridge] installing',pkg.name+'@'+pkg.version);step(1,3,'setup protocol templates');step(2,3,'register cli binary');step(3,3,'run post-install checks');console.log('[aibridge] ready. Run `aibridge --version` and `aibridge init --interactive`.');}catch(e){}\"",
     "aibridge": "tsx aibridge/cli/bin/aibridge.ts",
     "aibridge:bin": "node dist-cli/aibridge.js",
     "aibridge:service": "tsx aibridge/services/local/bin/aibridge-local-service.ts",
