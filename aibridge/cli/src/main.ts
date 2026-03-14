@@ -65,7 +65,6 @@ import {
   errorPanel,
   headline,
   info,
-  info,
   infoLine,
   kv,
   muted,
@@ -563,9 +562,19 @@ function renderCreatedEntity(kind: string, entityId: string, details: Array<[str
   return `${lines.join("\n")}\n`;
 }
 
+/** Injected at build time by scripts/build-cli.mjs */
+declare const __AIBRIDGE_CLI_VERSION__: string | undefined;
+
+const CLI_VERSION = typeof __AIBRIDGE_CLI_VERSION__ === "string" ? __AIBRIDGE_CLI_VERSION__ : "0.0.0";
+
 export async function runCli(rawArgs: string[], io: { stdout: (text: string) => void; stderr: (text: string) => void }) {
   const { positionals, flags } = parseArgs(rawArgs);
   const [command, subcommand, ...rest] = positionals;
+
+  if (command === "-v" || flagBoolean(flags, "version")) {
+    io.stdout(`${CLI_VERSION}\n`);
+    return 0;
+  }
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     io.stdout(helpText());

@@ -42,6 +42,7 @@
   },
   "homepage": "https://github.com/zerwonenetwork/aibridge-core#readme",
   "scripts": {
+    "postinstall": "node -e \"const fs=require('fs'),p=require('path');try{const j=fs.readFileSync(p.join(process.cwd(),'package.json'),'utf8');const v=JSON.parse(j);if(v.name==='@zerwonenetwork/aibridge-core'&&v.version)console.log('@zerwonenetwork/aibridge-core',v.version,'installed. Run aibridge --version to check.');}catch(e){}\"",
     "aibridge": "tsx aibridge/cli/bin/aibridge.ts",
     "aibridge:bin": "node dist-cli/aibridge.js",
     "aibridge:service": "tsx aibridge/services/local/bin/aibridge-local-service.ts",
