@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.8 — 2026-03-08
+
+### Added
+- **`aibridge --version` / `aibridge -v`** — Print CLI version and exit (no longer shows full help).
+- **Postinstall message** — After `npm install -g` or `npm update -g`, print installed version and hint to run `aibridge --version`.
+
 ## 0.1.7 — 2026-03-08
 
 ### Added
