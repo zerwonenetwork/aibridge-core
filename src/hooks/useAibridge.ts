@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   acknowledgeLocalMessage,
+  cleanupLocalProtocolIssue,
   createLocalAnnouncement,
   createLocalRelease,
   createLocalTask,
+  dispatchLocalAgentRecovery,
+  dispatchLocalAgentSession,
   heartbeatLocalAgentSession,
   fetchLocalBridgeStatus,
+  fetchLocalProtocolRepairPrompt,
   launchLocalAgentSession,
   LocalBridgeClientError,
   regenerateLocalContext,
   recoverLocalAgentSession,
+  runLocalAgentNonChat,
   startLocalAgentSession,
   stopLocalAgentSession,
   subscribeToLocalBridgeEvents,
@@ -114,6 +119,8 @@ function createPlaceholderStatus(runtime: AibridgeRuntimeState): AibridgeStatus 
     },
     contextMarkdown: "",
     issues: [],
+    protocolIssues: [],
+    toolCapabilities: [],
   };
 }
 
@@ -342,6 +349,61 @@ export function useAibridge() {
     [preferences, status],
   );
 
+  const dispatchAgentSession = useCallback(
+    async (sessionId: string) => {
+      const response = await dispatchLocalAgentSession(buildRequestOptions(preferences), sessionId);
+      setStatus(response.status ?? status);
+      setRuntime(response.runtime);
+      setError(null);
+      return response.data;
+    },
+    [preferences, status],
+  );
+
+  const dispatchAgentRecovery = useCallback(
+    async (sessionId: string) => {
+      const response = await dispatchLocalAgentRecovery(buildRequestOptions(preferences), sessionId);
+      setStatus(response.status ?? status);
+      setRuntime(response.runtime);
+      setError(null);
+      return response.data;
+    },
+    [preferences, status],
+  );
+
+  const runAgentNonChat = useCallback(
+    async (sessionId: string) => {
+      const response = await runLocalAgentNonChat(buildRequestOptions(preferences), sessionId);
+      setStatus(response.status ?? status);
+      setRuntime(response.runtime);
+      setError(null);
+      return response.data;
+    },
+    [preferences, status],
+  );
+
+  const fetchRepairPrompt = useCallback(
+    async (issueId: string) => {
+      const response = await fetchLocalProtocolRepairPrompt(buildRequestOptions(preferences), issueId);
+      setStatus(response.status ?? status);
+      setRuntime(response.runtime);
+      setError(null);
+      return response.data.prompt;
+    },
+    [preferences, status],
+  );
+
+  const cleanupProtocolIssue = useCallback(
+    async (issueId: string) => {
+      const response = await cleanupLocalProtocolIssue(buildRequestOptions(preferences), issueId);
+      setStatus(response.status ?? status);
+      setRuntime(response.runtime);
+      setError(null);
+      return response.data;
+    },
+    [preferences, status],
+  );
+
   return {
     status,
     runtime,
@@ -366,6 +428,11 @@ export function useAibridge() {
     heartbeatAgentSession,
     stopAgentSession,
     recoverAgentSession,
+    dispatchAgentSession,
+    dispatchAgentRecovery,
+    runAgentNonChat,
+    fetchRepairPrompt,
+    cleanupProtocolIssue,
     sync,
   };
 }

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.13 — 2026-03-15
+
+### Added
+- **Concrete agent adapters** — AiBridge now models `cursor`, `antigravity`, and `codex` through a shared adapter layer with explicit launch modes, dispatch status, attached context files, and command previews.
+- **UI-first launch and recovery dispatch** — the local dashboard can now show dispatch-ready launch/recovery actions instead of only raw prompt text.
+- **Protocol issue workflow** — invalid hand-written `.aibridge/*.json` files are surfaced as structured protocol issues with cleanup and repair-prompt endpoints.
+- **Prompt artifacts** — launch and recovery prompts are now written to `.aibridge/prompts/` for inspection and future tool execution paths.
+
+### Changed
+- **Agent Launch Center** now distinguishes prompt-copy, Antigravity UI dispatch, and Codex non-chat execution paths.
+- **Status payloads** now include adapter capabilities and structured protocol issues so the UI can guide humans without dropping to CLI-first troubleshooting.
+- **Recovery flow** now carries tool-specific attach-file hints and command previews.
+
 ## 0.1.12 — 2026-03-14
 
 ### Changed

@@ -1,7 +1,7 @@
 {
   "name": "@zerwonenetwork/aibridge-core",
   "private": false,
-  "version": "0.1.12",
+  "version": "0.1.13",
   "type": "module",
   "description": "Local-first coordination standard and reference implementation for AI workspaces.",
   "license": "MIT",

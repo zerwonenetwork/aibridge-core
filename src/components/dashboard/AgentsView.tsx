@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
   AibridgeAgent,
+  AibridgeAgentToolCapability,
   AibridgeAgentSession,
   AibridgeAgentToolKind,
   AibridgeHandoff,
@@ -24,11 +25,15 @@ interface AgentsViewProps {
   tasks?: AibridgeTask[];
   messages?: AibridgeMessage[];
   sessions: AibridgeAgentSession[];
+  toolCapabilities?: AibridgeAgentToolCapability[];
   onLaunchSession: (agentId: string, toolKind: AibridgeAgentToolKind) => Promise<AibridgeAgentSession>;
+  onDispatchSession: (sessionId: string) => Promise<AibridgeAgentSession>;
   onStartSession: (sessionId: string) => Promise<AibridgeAgentSession>;
   onHeartbeatSession: (sessionId: string) => Promise<AibridgeAgentSession>;
   onStopSession: (sessionId: string, reason?: string) => Promise<AibridgeAgentSession>;
   onRecoverSession: (sessionId: string) => Promise<AibridgeAgentSession>;
+  onDispatchRecovery: (sessionId: string) => Promise<AibridgeAgentSession>;
+  onRunNonChat: (sessionId: string) => Promise<AibridgeAgentSession>;
 }
 
 const item = {
@@ -57,11 +62,15 @@ export function AgentsView({
   tasks = [],
   messages = [],
   sessions,
+  toolCapabilities = [],
   onLaunchSession,
+  onDispatchSession,
   onStartSession,
   onHeartbeatSession,
   onStopSession,
   onRecoverSession,
+  onDispatchRecovery,
+  onRunNonChat,
 }: AgentsViewProps) {
   const [selectedAgent, setSelectedAgent] = useState<AibridgeAgent | null>(null);
   const [launchAgentId, setLaunchAgentId] = useState(agents[0]?.id ?? "");
@@ -118,6 +127,38 @@ export function AgentsView({
 
   function openHandoffCount(agentId: string) {
     return handoffs.filter((handoff) => handoff.toAgentId === agentId).length;
+  }
+
+  function capabilityFor(toolKind: AibridgeAgentToolKind) {
+    return toolCapabilities.find((item) => item.tool === toolKind);
+  }
+
+  function primaryLaunchActionLabel(session: AibridgeAgentSession) {
+    const capability = capabilityFor(session.toolKind);
+    if (session.toolKind === "antigravity" && capability?.uiDispatch) {
+      return "Launch in Antigravity";
+    }
+    if (session.toolKind === "codex" && capability?.nonChatExec) {
+      return "Run with Codex";
+    }
+    return "Copy prompt";
+  }
+
+  async function runPrimaryLaunchAction(session: AibridgeAgentSession) {
+    const capability = capabilityFor(session.toolKind);
+    if (session.toolKind === "antigravity" && capability?.uiDispatch) {
+      const dispatched = await onDispatchSession(session.id);
+      setActivePromptSession(dispatched);
+      return;
+    }
+
+    if (session.toolKind === "codex" && capability?.nonChatExec) {
+      const executed = await onRunNonChat(session.id);
+      setActivePromptSession(executed);
+      return;
+    }
+
+    await copyText("launch", session.instructions.prompt);
   }
 
   return (
@@ -186,6 +227,15 @@ export function AgentsView({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
+                    variant={activePromptSession.toolKind === "cursor" ? "outline" : "default"}
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => void runPrimaryLaunchAction(activePromptSession)}
+                  >
+                    {activePromptSession.toolKind === "cursor" ? <Copy className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                    {primaryLaunchActionLabel(activePromptSession)}
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     className="gap-1.5 text-xs"
@@ -212,6 +262,25 @@ export function AgentsView({
                 value={activePromptSession.instructions.prompt}
                 className="min-h-52 w-full rounded-md border border-border bg-background px-3 py-3 text-sm text-foreground"
               />
+              <div className="grid gap-3 lg:grid-cols-2 text-xs text-muted-foreground">
+                <div className="rounded-md border border-border bg-background/60 p-3">
+                  <p className="font-medium text-foreground">Attached files</p>
+                  <ul className="mt-2 space-y-1">
+                    {activePromptSession.instructions.filesToAttach.map((file) => (
+                      <li key={file}>{file}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-md border border-border bg-background/60 p-3">
+                  <p className="font-medium text-foreground">Dispatch preview</p>
+                  <p className="mt-2 break-words font-mono">
+                    {activePromptSession.instructions.commandPreview ?? "Prompt copy only; no stable automatic dispatch for this tool."}
+                  </p>
+                  {activePromptSession.instructions.dispatchNote ? (
+                    <p className="mt-2">{activePromptSession.instructions.dispatchNote}</p>
+                  ) : null}
+                </div>
+              </div>
             </div>
           ) : null}
         </CardContent>
@@ -322,6 +391,7 @@ export function AgentsView({
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <Badge className={`text-[10px] border ${STATUS_TONES[session.status]}`}>{session.status}</Badge>
                                   <Badge variant="outline" className="text-[10px] uppercase">{TOOL_LABELS[session.toolKind]}</Badge>
+                                  <Badge variant="outline" className="text-[10px] uppercase">{session.instructions.mode.replaceAll("_", " ")}</Badge>
                                   <Badge variant="outline" className="text-[10px] uppercase">{session.launchSource}</Badge>
                                   <span className="text-xs text-muted-foreground">
                                     launched {formatDistanceToNow(new Date(session.launchedAt), { addSuffix: true })}
@@ -333,6 +403,17 @@ export function AgentsView({
                                 ) : null}
                               </div>
                               <div className="flex flex-wrap gap-2">
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="gap-1.5 text-xs"
+                                  onClick={async () => {
+                                    await runPrimaryLaunchAction(session);
+                                  }}
+                                >
+                                  {session.toolKind === "cursor" ? <Copy className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                                  {primaryLaunchActionLabel(session)}
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -367,6 +448,20 @@ export function AgentsView({
                                       <Copy className="w-3.5 h-3.5" />
                                       {copiedText === `recovery-${session.id}` ? "Copied" : "Copy recovery prompt"}
                                     </Button>
+                                    {(capabilityFor(session.toolKind)?.recoveryDispatch || capabilityFor(session.toolKind)?.nonChatExec) ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-1.5 text-xs"
+                                        onClick={async () => {
+                                          const refreshed = await onDispatchRecovery(session.id);
+                                          setActivePromptSession(refreshed);
+                                        }}
+                                      >
+                                        <Play className="w-3.5 h-3.5" />
+                                        {session.toolKind === "codex" ? "Run recovery" : "Dispatch recovery"}
+                                      </Button>
+                                    ) : null}
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -412,6 +507,19 @@ export function AgentsView({
                                 ) : (
                                   <p className="mt-1">No assigned in-flight tasks.</p>
                                 )}
+                              </div>
+                            </div>
+                            <div className="grid gap-3 lg:grid-cols-2 text-xs text-muted-foreground">
+                              <div className="rounded-md border border-border bg-background/50 p-3">
+                                <p className="font-medium text-foreground">Dispatch status</p>
+                                <p className="mt-1">{session.instructions.dispatchStatus}</p>
+                                {session.instructions.dispatchNote ? <p className="mt-1">{session.instructions.dispatchNote}</p> : null}
+                              </div>
+                              <div className="rounded-md border border-border bg-background/50 p-3">
+                                <p className="font-medium text-foreground">Command preview</p>
+                                <p className="mt-1 break-words font-mono">
+                                  {session.instructions.commandPreview ?? "Prompt copy only"}
+                                </p>
                               </div>
                             </div>
                           </div>

@@ -24,13 +24,19 @@ import {
   addMessage,
   addRelease,
   addTask,
+  buildProtocolIssueRepairPrompt,
+  cleanupProtocolIssue,
+  dispatchAgentSessionLaunch,
+  dispatchAgentSessionRecovery,
   getAgentSessionRecovery,
+  getAgentToolCapabilities,
   createHandoff,
   getStatusSummary,
   heartbeatAgentSession,
   launchAgentSession,
   listAgentSessions,
   listAnnouncements,
+  listProtocolIssues,
   listConventions,
   listDecisions,
   listHandoffs,
@@ -52,6 +58,7 @@ import {
   parseTaskStatus,
   regenerateContext,
   resolveBridgeRoot,
+  runAgentSessionNonChat,
   showConventionsMarkdown,
   startAgentSession,
   stopAgentSession,
@@ -433,6 +440,17 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse,
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/bridge/agents/capabilities") {
+    const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
+    const capabilities = await getAgentToolCapabilities(rootPath);
+    sendJson(response, 200, {
+      data: capabilities,
+      runtime,
+      revision: await computeRevision(rootPath),
+    });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/bridge/agents/sessions") {
     const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
     const sessions = await listAgentSessions(rootPath, {
@@ -442,6 +460,17 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse,
     });
     sendJson(response, 200, {
       data: sessions,
+      runtime,
+      revision: await computeRevision(rootPath),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/bridge/protocol/issues") {
+    const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
+    const issues = await listProtocolIssues(rootPath);
+    sendJson(response, 200, {
+      data: issues,
       runtime,
       revision: await computeRevision(rootPath),
     });
@@ -461,7 +490,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse,
     return;
   }
 
-  const sessionMutationMatch = url.pathname.match(/^\/bridge\/agents\/sessions\/([^/]+)\/(start|heartbeat|stop|recovery)$/);
+  const sessionMutationMatch = url.pathname.match(/^\/bridge\/agents\/sessions\/([^/]+)\/(start|heartbeat|stop|recovery|dispatch|non-chat)$/);
   if (sessionMutationMatch) {
     const [, sessionId, action] = sessionMutationMatch;
     const body = request.method === "POST" ? await readJsonBody(request) : {};
@@ -480,10 +509,49 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse,
       data = await stopAgentSession(rootPath, sessionId, {
         reason: typeof body.reason === "string" ? body.reason : undefined,
       });
+    } else if (request.method === "POST" && action === "dispatch") {
+      data = await dispatchAgentSessionLaunch(rootPath, sessionId);
+    } else if (request.method === "POST" && action === "non-chat") {
+      data = await runAgentSessionNonChat(rootPath, sessionId);
     } else if (request.method === "GET" && action === "recovery") {
       data = await getAgentSessionRecovery(rootPath, sessionId);
     } else {
       throw new BridgeRuntimeError("BAD_REQUEST", `Unsupported session action: ${action}`);
+    }
+
+    const status = await getStatusSummary(rootPath, resolveAccess(request, options));
+    sendJson(response, 200, withStatusEnvelope(data, status, runtime, await computeRevision(rootPath)));
+    return;
+  }
+
+  const recoveryDispatchMatch = url.pathname.match(/^\/bridge\/agents\/sessions\/([^/]+)\/recovery\/dispatch$/);
+  if (recoveryDispatchMatch) {
+    const [, sessionId] = recoveryDispatchMatch;
+    const body = await readJsonBody(request);
+    const { rootPath, runtime } = await resolveRuntime(options, body.source, body.rootPath);
+    const data = await dispatchAgentSessionRecovery(rootPath, sessionId);
+    const status = await getStatusSummary(rootPath, resolveAccess(request, options));
+    sendJson(response, 200, withStatusEnvelope(data, status, runtime, await computeRevision(rootPath)));
+    return;
+  }
+
+  const protocolIssueActionMatch = url.pathname.match(/^\/bridge\/protocol\/issues\/([^/]+)\/(repair-prompt|cleanup)$/);
+  if (protocolIssueActionMatch) {
+    const [, issueId, action] = protocolIssueActionMatch;
+    const body = request.method === "POST" ? await readJsonBody(request) : {};
+    const { rootPath, runtime } = await resolveRuntime(
+      options,
+      request.method === "GET" ? url.searchParams.get("source") : body.source,
+      request.method === "GET" ? url.searchParams.get("root") : body.rootPath,
+    );
+
+    let data;
+    if (request.method === "GET" && action === "repair-prompt") {
+      data = { prompt: await buildProtocolIssueRepairPrompt(rootPath, issueId) };
+    } else if (request.method === "POST" && action === "cleanup") {
+      data = await cleanupProtocolIssue(rootPath, issueId);
+    } else {
+      throw new BridgeRuntimeError("BAD_REQUEST", `Unsupported protocol issue action: ${action}`);
     }
 
     const status = await getStatusSummary(rootPath, resolveAccess(request, options));

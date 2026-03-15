@@ -19,7 +19,7 @@ export function InboxView({ status, onNavigate }: InboxViewProps) {
   const unreadMessages = status.messages.filter((message) => !message.acknowledged);
   const openHandoffs = status.handoffs.slice(0, 5);
   const staleSessions = status.sessions.filter((session) => session.status === "stale" || session.status === "failed");
-  const activeIssues = status.issues ?? [];
+  const activeIssues = status.protocolIssues ?? [];
   const nextTasks = status.tasks.filter((task) => task.status !== "done").slice(0, 5);
 
   return (
@@ -126,8 +126,9 @@ export function InboxView({ status, onNavigate }: InboxViewProps) {
               <p className="text-sm text-muted-foreground">No protocol or runtime issues detected.</p>
             ) : (
               activeIssues.slice(0, 3).map((issue) => (
-                <div key={issue} className={`rounded-md border p-3 ${issueTone(issue)}`}>
-                  <p className="text-sm">{issue}</p>
+                <div key={issue.id} className={`rounded-md border p-3 ${issueTone(issue.detail)}`}>
+                  <p className="text-sm">{issue.title}</p>
+                  <p className="text-xs mt-1 opacity-80">{issue.detail}</p>
                 </div>
               ))
             )}

@@ -10,12 +10,17 @@ import {
   addMessage,
   addRelease,
   addTask,
+  buildProtocolIssueRepairPrompt,
+  cleanupProtocolIssue,
   createHandoff,
+  dispatchAgentSessionLaunch,
+  getAgentToolCapabilities,
   getAgentSessionRecovery,
   initBridge,
   launchAgentSession,
   listAgentSessions,
   listAnnouncements,
+  listProtocolIssues,
   listReleases,
   loadBridgeSnapshot,
   regenerateContext,
@@ -308,5 +313,53 @@ describe("loadBridgeSnapshot", () => {
     expect(session.instructions.prompt).toContain("Tool: antigravity.");
     expect(session.instructions.prompt).toContain(".aibridge/agents/antigravity.md");
     expect(session.instructions.prompt).toContain('npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge agent start --session');
+  });
+
+  it("returns static adapter capabilities and reports unsupported cursor dispatch cleanly", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-dispatch-capabilities-"));
+    tempDirs.push(tempDir);
+    await initBridge({
+      cwd: tempDir,
+      name: "Dispatch Demo",
+      agents: ["cursor"],
+    });
+
+    const root = path.join(tempDir, ".aibridge");
+    const capabilities = await getAgentToolCapabilities(root);
+    expect(capabilities.map((item) => item.tool)).toEqual(["cursor", "antigravity", "codex"]);
+
+    const launched = await launchAgentSession(root, {
+      agentId: "cursor",
+      toolKind: "cursor",
+      launchSource: "dashboard",
+    });
+    const dispatched = await dispatchAgentSessionLaunch(root, launched.id);
+
+    expect(dispatched.instructions.dispatchStatus).toBe("unsupported");
+    expect(dispatched.instructions.dispatchNote).toContain("Cursor foreground chat injection");
+  });
+
+  it("surfaces invalid protocol files as cleanup-ready protocol issues", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aibridge-protocol-issues-"));
+    tempDirs.push(tempDir);
+    await initBridge({
+      cwd: tempDir,
+      name: "Protocol Issues",
+      agents: ["cursor", "antigravity"],
+    });
+
+    const root = path.join(tempDir, ".aibridge");
+    const invalidPath = path.join(root, "handoffs", "handoff-invalid.json");
+    await writeFile(invalidPath, "{\"id\":\"handoff-invalid\"}\n", "utf8");
+
+    const issues = await listProtocolIssues(root);
+    const invalidIssue = issues.find((issue) => issue.type === "invalid_entity");
+    expect(invalidIssue?.filePath).toContain("handoff-invalid.json");
+
+    const repairPrompt = await buildProtocolIssueRepairPrompt(root, invalidIssue!.id);
+    expect(repairPrompt).toContain("Do not hand-edit `.aibridge/*.json` files.");
+
+    await cleanupProtocolIssue(root, invalidIssue!.id);
+    await expect(readFile(invalidPath, "utf8")).rejects.toThrow();
   });
 });

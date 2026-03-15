@@ -73,6 +73,11 @@ const Dashboard = () => {
     heartbeatAgentSession,
     stopAgentSession,
     recoverAgentSession,
+    dispatchAgentSession,
+    dispatchAgentRecovery,
+    runAgentNonChat,
+    fetchRepairPrompt,
+    cleanupProtocolIssue,
   } = useAibridge();
 
   const isMobile = useIsMobile();
@@ -86,27 +91,10 @@ const Dashboard = () => {
   const isAdmin = status.access.canMutate;
   const unreadCount = status.messages.filter(m => !m.acknowledged).length;
 
-  const repairPrompt = useMemo(() => {
-    const invalidIssues = (status.issues ?? []).filter((issue) => /invalid|unable to read|unable to parse/i.test(issue));
-    if (invalidIssues.length === 0) {
-      return "";
-    }
-
-    return [
-      "AiBridge detected invalid or manually edited protocol files.",
-      "",
-      "Do not hand-edit `.aibridge/*.json` files.",
-      "Re-read `.aibridge/CONTEXT.md`, then recreate the invalid state using the canonical AiBridge CLI only.",
-      "",
-      "Use this command shape:",
-      'npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge <command>"',
-      "",
-      "Detected issues:",
-      ...invalidIssues.map((issue) => `- ${issue}`),
-      "",
-      "After repairing the state, regenerate context.",
-    ].join("\n");
-  }, [status.issues]);
+  const repairIssue = useMemo(
+    () => status.protocolIssues?.find((issue) => issue.recommendedAction === "cleanup_and_reprompt"),
+    [status.protocolIssues],
+  );
 
   const handleViewChange = (view: DashboardView) => {
     setActiveView(view);
@@ -178,11 +166,15 @@ const Dashboard = () => {
             tasks={status.tasks}
             messages={status.messages}
             sessions={status.sessions}
+            toolCapabilities={status.toolCapabilities}
             onLaunchSession={launchAgentSession}
+            onDispatchSession={dispatchAgentSession}
             onStartSession={startAgentSession}
             onHeartbeatSession={heartbeatAgentSession}
             onStopSession={stopAgentSession}
             onRecoverSession={recoverAgentSession}
+            onDispatchRecovery={dispatchAgentRecovery}
+            onRunNonChat={runAgentNonChat}
           />
         );
       case "conventions":
@@ -297,25 +289,30 @@ const Dashboard = () => {
                 </Card>
               )}
 
-              {!error && status.issues && status.issues.length > 0 && (
+              {!error && ((status.protocolIssues?.length ?? 0) > 0 || (status.issues?.length ?? 0) > 0) && (
                 <Card className="bg-card border-amber-500/30 mb-4">
                   <CardContent className="p-4 space-y-3 text-sm">
                     <p className="font-medium text-foreground">Local bridge notices</p>
-                    {status.issues.slice(0, 3).map(issue => (
-                      <p key={issue} className="text-muted-foreground">{issue}</p>
-                    ))}
+                    {(status.protocolIssues?.length ?? 0) > 0
+                      ? status.protocolIssues!.slice(0, 3).map((issue) => (
+                          <p key={issue.id} className="text-muted-foreground">{issue.detail}</p>
+                        ))
+                      : status.issues?.slice(0, 3).map((issue) => (
+                          <p key={issue} className="text-muted-foreground">{issue}</p>
+                        ))}
                     <div className="flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleViewChange("inbox")}>
                         Open inbox
                       </Button>
-                      {repairPrompt ? (
+                      {repairIssue ? (
                         <Button
                           variant="secondary"
                           size="sm"
                           className="gap-1.5 text-xs"
                           onClick={async () => {
                             try {
-                              await navigator.clipboard.writeText(repairPrompt);
+                              const prompt = await fetchRepairPrompt(repairIssue.id);
+                              await navigator.clipboard.writeText(prompt);
                               toast({
                                 title: "Repair prompt copied",
                                 description: "Paste it into the agent that wrote the invalid bridge state.",
@@ -331,6 +328,31 @@ const Dashboard = () => {
                         >
                           <Copy className="w-3.5 h-3.5" />
                           Copy repair prompt
+                        </Button>
+                      ) : null}
+                      {repairIssue ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs"
+                          onClick={async () => {
+                            try {
+                              await cleanupProtocolIssue(repairIssue.id);
+                              toast({
+                                title: "Invalid file removed",
+                                description: "AiBridge cleaned up the invalid protocol file and regenerated context.",
+                              });
+                            } catch (caughtError) {
+                              toast({
+                                title: "Cleanup failed",
+                                description: caughtError instanceof Error ? caughtError.message : "Unable to clean up the invalid file.",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          <DatabaseZap className="w-3.5 h-3.5" />
+                          Clean invalid file
                         </Button>
                       ) : null}
                     </div>

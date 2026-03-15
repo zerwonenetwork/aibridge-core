@@ -2,10 +2,12 @@ import type {
   AibridgeAccessRole,
   AibridgeAgentLaunchSource,
   AibridgeAgentSession,
+  AibridgeAgentToolCapability,
   AibridgeAgentToolKind,
   AibridgeAnnouncement,
   AibridgeLocalEvent,
   AibridgeLocalSource,
+  AibridgeProtocolIssue,
   AibridgeRelease,
   AibridgeRuntimeState,
   AibridgeStatus,
@@ -259,6 +261,12 @@ export async function fetchLocalAgentSessions(
   );
 }
 
+export async function fetchLocalAgentCapabilities(options: LocalBridgeRequestOptions) {
+  return requestLocalBridge<AibridgeAgentToolCapability[]>(buildServiceUrl("/bridge/agents/capabilities", options), {
+    headers: buildRequestHeaders(options),
+  });
+}
+
 export async function launchLocalAgentSession(
   options: LocalBridgeRequestOptions,
   payload: { agentId: string; toolKind: AibridgeAgentToolKind; launchSource?: AibridgeAgentLaunchSource },
@@ -270,6 +278,17 @@ export async function launchLocalAgentSession(
       source: options.source,
       rootPath: options.rootPath,
       ...payload,
+    }),
+  });
+}
+
+export async function dispatchLocalAgentSession(options: LocalBridgeRequestOptions, sessionId: string) {
+  return requestLocalBridge<AibridgeAgentSession>(buildServiceUrl(`/bridge/agents/sessions/${sessionId}/dispatch`), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
     }),
   });
 }
@@ -316,6 +335,52 @@ export async function recoverLocalAgentSession(options: LocalBridgeRequestOption
   return requestLocalBridge<AibridgeAgentSession>(buildServiceUrl(`/bridge/agents/sessions/${sessionId}/recovery`), {
     method: "GET",
     headers: buildRequestHeaders(options),
+  });
+}
+
+export async function dispatchLocalAgentRecovery(options: LocalBridgeRequestOptions, sessionId: string) {
+  return requestLocalBridge<AibridgeAgentSession>(buildServiceUrl(`/bridge/agents/sessions/${sessionId}/recovery/dispatch`), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+    }),
+  });
+}
+
+export async function runLocalAgentNonChat(options: LocalBridgeRequestOptions, sessionId: string) {
+  return requestLocalBridge<AibridgeAgentSession>(buildServiceUrl(`/bridge/agents/sessions/${sessionId}/non-chat`), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+    }),
+  });
+}
+
+export async function fetchLocalProtocolIssues(options: LocalBridgeRequestOptions) {
+  return requestLocalBridge<AibridgeProtocolIssue[]>(buildServiceUrl("/bridge/protocol/issues", options), {
+    headers: buildRequestHeaders(options),
+  });
+}
+
+export async function fetchLocalProtocolRepairPrompt(options: LocalBridgeRequestOptions, issueId: string) {
+  return requestLocalBridge<{ prompt: string }>(buildServiceUrl(`/bridge/protocol/issues/${issueId}/repair-prompt`, options), {
+    method: "GET",
+    headers: buildRequestHeaders(options),
+  });
+}
+
+export async function cleanupLocalProtocolIssue(options: LocalBridgeRequestOptions, issueId: string) {
+  return requestLocalBridge<{ removedPath: string; issueId: string }>(buildServiceUrl(`/bridge/protocol/issues/${issueId}/cleanup`), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+    }),
   });
 }
 

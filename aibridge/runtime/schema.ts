@@ -40,6 +40,8 @@ export const setupAgentModes = ["single-agent", "multi-agent"] as const;
 export const agentToolKinds = ["cursor", "codex", "antigravity"] as const;
 export const agentSessionStatuses = ["pending", "active", "stale", "stopped", "failed"] as const;
 export const agentLaunchSources = ["dashboard", "app", "cli"] as const;
+export const agentLaunchModes = ["prompt_copy", "ui_dispatch", "background_remote", "non_chat_exec"] as const;
+export const agentDispatchStatuses = ["not_attempted", "launched", "unsupported", "failed"] as const;
 
 export const agentSchema = z.object({
   id: z.string().min(1),
@@ -139,6 +141,11 @@ export const agentRecoveryStateSchema = z.object({
   reason: z.string().min(1).optional(),
   prompt: z.string().min(1).optional(),
   generatedAt: z.string().datetime().optional(),
+  mode: z.enum(agentLaunchModes).optional(),
+  filesToAttach: z.array(z.string().min(1)).default([]),
+  commandPreview: z.string().min(1).optional(),
+  dispatchStatus: z.enum(agentDispatchStatuses).optional(),
+  dispatchNote: z.string().min(1).optional(),
 });
 
 export const launchInstructionSetSchema = z.object({
@@ -147,10 +154,17 @@ export const launchInstructionSetSchema = z.object({
   toolKind: z.enum(agentToolKinds),
   launchSource: z.enum(agentLaunchSources),
   generatedAt: z.string().datetime(),
+  mode: z.enum(agentLaunchModes),
+  title: z.string().min(1),
+  subtitle: z.string().min(1).optional(),
   prompt: z.string().min(1),
   firstSteps: z.array(z.string().min(1)).default([]),
   checklist: z.array(z.string().min(1)).default([]),
   cliCommand: z.string().min(1),
+  filesToAttach: z.array(z.string().min(1)).default([]),
+  commandPreview: z.string().min(1).optional(),
+  dispatchStatus: z.enum(agentDispatchStatuses).default("not_attempted"),
+  dispatchNote: z.string().min(1).optional(),
   recoveryPrompt: z.string().min(1).optional(),
 });
 

@@ -6,6 +6,7 @@ import type {
   AibridgeBridgeSnapshot,
   AibridgeLaunchInstructionSet,
 } from "../../src/lib/aibridge/types";
+import { launchPresentation, recoveryPresentation } from "./adapters";
 
 const ACTIVE_STALE_MS = 10 * 60 * 1000;
 const PENDING_STALE_MS = 5 * 60 * 1000;
@@ -77,6 +78,7 @@ export function buildLaunchInstructionSet(
     "If you are blocked or handing off, create a handoff or warning message in AiBridge.",
     "Regenerate context after meaningful state changes.",
   ];
+  const presentation = launchPresentation(toolKind, sessionId, agent.configPath);
   const supportiveFile = toolKind === "cursor" ? ".cursor/rules/aibridge.mdc" : "AGENTS.md";
   const toolLabel = toolKind === "cursor" ? "Cursor" : toolKind === "codex" ? "Codex" : "Antigravity";
   const promptSections = [
@@ -118,10 +120,16 @@ export function buildLaunchInstructionSet(
     toolKind,
     launchSource,
     generatedAt,
+    mode: presentation.mode,
+    title: presentation.title,
+    subtitle: presentation.subtitle,
     prompt: promptSections.join("\n"),
     firstSteps,
     checklist,
     cliCommand,
+    filesToAttach: presentation.filesToAttach,
+    commandPreview: presentation.commandPreview,
+    dispatchStatus: "not_attempted",
   };
 }
 
@@ -140,7 +148,6 @@ function buildRecoveryPromptFromReason(
   const handoffs = openHandoffsForAgent(snapshot, session.agentId).slice(0, 2);
   const cliCommand = buildCliCommandHint();
   const fallbackHeartbeatCommand = buildCliFallbackCommand(`agent heartbeat --session ${session.id}`);
-
   return [
     `Resume your AiBridge session for agent ${session.agentId}.`,
     `Reason: ${reason}`,
@@ -174,6 +181,7 @@ export function deriveAgentSession(
   session: AibridgeAgentSession,
   now = new Date().toISOString(),
 ): AibridgeAgentSession {
+  const presentation = recoveryPresentation(session.toolKind, session.id);
   const latestLogActivity = snapshot.logs
     .filter((entry) => entry.agentId === session.agentId && entry.timestamp >= session.launchedAt)
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0]?.timestamp;
@@ -221,6 +229,11 @@ export function deriveAgentSession(
       reason,
       prompt: recoveryPrompt,
       generatedAt: recoveryPrompt ? now : session.recovery?.generatedAt,
+      mode: presentation.mode,
+      filesToAttach: presentation.filesToAttach,
+      commandPreview: presentation.commandPreview,
+      dispatchStatus: session.recovery?.dispatchStatus,
+      dispatchNote: session.recovery?.dispatchNote,
     },
   };
 }

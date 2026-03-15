@@ -13,6 +13,7 @@ import type {
   AibridgeAgentSession,
   AibridgeAgentSessionStatus,
   AibridgeAgentKind,
+  AibridgeAgentToolCapability,
   AibridgeAgentToolKind,
   AibridgeBridgeConfig,
   AibridgeBridgeSnapshot,
@@ -23,12 +24,20 @@ import type {
   AibridgeLocalSource,
   AibridgeLogEntry,
   AibridgeMessage,
+  AibridgeProtocolIssue,
   AibridgeRelease,
   AibridgeStatus,
   AibridgeTask,
   TaskStatus,
 } from "../../src/lib/aibridge/types";
 import { compileContextMarkdown, parseContextTimestamp } from "./context";
+import {
+  dispatchLaunchOrRecovery,
+  listAgentToolCapabilities,
+  recoveryPresentation,
+  runCodexNonChat,
+  launchPresentation,
+} from "./adapters";
 import {
   buildLaunchInstructionSet,
   deriveAgentSession,
@@ -239,6 +248,7 @@ interface BridgePaths {
   bridgeFile: string;
   contextFile: string;
   conventionsFile: string;
+  promptsDir: string;
   captureDir: string;
   agentsDir: string;
   tasksDir: string;
@@ -260,6 +270,7 @@ function getBridgePaths(root: string): BridgePaths {
     bridgeFile: path.join(root, "bridge.json"),
     contextFile: path.join(root, "CONTEXT.md"),
     conventionsFile: path.join(root, "CONVENTIONS.md"),
+    promptsDir: path.join(root, "prompts"),
     captureDir: path.join(root, "capture"),
     agentsDir: path.join(root, "agents"),
     tasksDir: path.join(root, "tasks"),
@@ -447,6 +458,157 @@ async function readJsonCollection<T>(
   }
 
   return data;
+}
+
+function toProtocolIssueId(prefix: string, value: string) {
+  return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
+}
+
+function singularEntityKind(dirName: string): AibridgeProtocolIssue["entityKind"] {
+  switch (dirName) {
+    case "tasks":
+      return "task";
+    case "messages":
+      return "message";
+    case "handoffs":
+      return "handoff";
+    case "decisions":
+      return "decision";
+    case "conventions":
+      return "convention";
+    case "releases":
+      return "release";
+    case "announcements":
+      return "announcement";
+    default:
+      return "session";
+  }
+}
+
+async function buildInvalidEntityIssues(paths: BridgePaths) {
+  const collections = [
+    { dirPath: paths.tasksDir, dirName: "tasks", parse: taskSchema.safeParse.bind(taskSchema) },
+    { dirPath: paths.messagesDir, dirName: "messages", parse: messageSchema.safeParse.bind(messageSchema) },
+    { dirPath: paths.handoffsDir, dirName: "handoffs", parse: handoffSchema.safeParse.bind(handoffSchema) },
+    { dirPath: paths.decisionsDir, dirName: "decisions", parse: decisionSchema.safeParse.bind(decisionSchema) },
+    { dirPath: paths.conventionsDir, dirName: "conventions", parse: conventionSchema.safeParse.bind(conventionSchema) },
+    { dirPath: paths.releasesDir, dirName: "releases", parse: releaseSchema.safeParse.bind(releaseSchema) },
+    { dirPath: paths.announcementsDir, dirName: "announcements", parse: announcementSchema.safeParse.bind(announcementSchema) },
+    { dirPath: paths.sessionsDir, dirName: "sessions", parse: agentSessionSchema.safeParse.bind(agentSessionSchema) },
+  ] as const;
+
+  const issues: AibridgeProtocolIssue[] = [];
+  for (const collection of collections) {
+    if (!(await fileExists(collection.dirPath))) {
+      continue;
+    }
+
+    const entries = (await fs.readdir(collection.dirPath))
+      .filter((entry) => entry.endsWith(".json"))
+      .sort((left, right) => left.localeCompare(right));
+
+    for (const entry of entries) {
+      const fullPath = path.join(collection.dirPath, entry);
+      const relativePath = path.relative(paths.repoRoot, fullPath).replaceAll("\\", "/");
+      try {
+        const raw = await fs.readFile(fullPath, "utf8");
+        const parsed = JSON.parse(raw);
+        const result = collection.parse(parsed);
+        if (result.success) {
+          continue;
+        }
+
+        const agentId =
+          typeof parsed?.agentId === "string"
+            ? parsed.agentId
+            : typeof parsed?.fromAgentId === "string"
+              ? parsed.fromAgentId
+              : undefined;
+
+        issues.push({
+          id: toProtocolIssueId("invalid", relativePath),
+          type: "invalid_entity",
+          severity: "critical",
+          title: `Invalid ${singularEntityKind(collection.dirName)} file`,
+          detail: `${relativePath}: ${result.error.issues.map((issue) => issue.message).join(", ")}`,
+          agentId,
+          entityKind: singularEntityKind(collection.dirName),
+          filePath: relativePath,
+          recommendedAction: "cleanup_and_reprompt",
+        });
+      } catch (error) {
+        issues.push({
+          id: toProtocolIssueId("invalid", relativePath),
+          type: "invalid_entity",
+          severity: "critical",
+          title: `Unreadable ${singularEntityKind(collection.dirName)} file`,
+          detail: `${relativePath}: ${(error as Error).message}`,
+          entityKind: singularEntityKind(collection.dirName),
+          filePath: relativePath,
+          recommendedAction: "cleanup_and_reprompt",
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+function buildSessionProtocolIssues(snapshot: AibridgeBridgeSnapshot) {
+  return snapshot.sessions
+    .map((session) => deriveAgentSession(snapshot, session))
+    .flatMap((session) => {
+      if (session.status === "stale" && session.recovery?.reason) {
+        return [{
+          id: `session-${session.id}-stale`,
+          type: "stale_session" as const,
+          severity: "warning" as const,
+          title: `${session.agentId} needs recovery`,
+          detail: session.recovery.reason,
+          agentId: session.agentId,
+          sessionId: session.id,
+          entityKind: "session" as const,
+          recommendedAction: "copy_recovery_prompt" as const,
+        }];
+      }
+
+      if (session.status === "failed") {
+        return [{
+          id: `session-${session.id}-failed`,
+          type: "failed_session" as const,
+          severity: "critical" as const,
+          title: `${session.agentId} session failed`,
+          detail: session.failureReason ?? session.recovery?.reason ?? "Agent session failed and needs review.",
+          agentId: session.agentId,
+          sessionId: session.id,
+          entityKind: "session" as const,
+          recommendedAction: "review_session" as const,
+        }];
+      }
+
+      if (session.status === "stopped" && (session.currentTaskIds?.length ?? 0) > 0) {
+        return [{
+          id: `session-${session.id}-stopped`,
+          type: "stopped_with_work" as const,
+          severity: "warning" as const,
+          title: `${session.agentId} stopped with open work`,
+          detail: session.stoppedReason ?? "Agent session stopped while assigned work remained.",
+          agentId: session.agentId,
+          sessionId: session.id,
+          entityKind: "session" as const,
+          recommendedAction: "review_session" as const,
+        }];
+      }
+
+      return [];
+    });
+}
+
+async function listProtocolIssuesInternal(rootPath: string, snapshot: AibridgeBridgeSnapshot) {
+  const root = await normalizeBridgeRoot(rootPath);
+  const paths = getBridgePaths(root);
+  const invalidIssues = await buildInvalidEntityIssues(paths);
+  return [...invalidIssues, ...buildSessionProtocolIssues(snapshot)];
 }
 
 function parseConventionMetadata(rawMetadata: string | undefined) {
@@ -724,6 +886,8 @@ function normalizeStatus(snapshot: AibridgeBridgeSnapshot, accessOptions: Bridge
     access,
     contextMarkdown: snapshot.contextMarkdown,
     issues,
+    protocolIssues: [],
+    toolCapabilities: [],
   };
 }
 
@@ -772,7 +936,10 @@ export async function loadBridgeSnapshot(rootPath: string) {
 
 export async function loadBridgeStatus(rootPath: string, accessOptions: BridgeAccessOptions = {}) {
   const root = await normalizeBridgeRoot(rootPath);
-  const status = normalizeStatus(await loadBridgeSnapshot(root), accessOptions);
+  const snapshot = await loadBridgeSnapshot(root);
+  const status = normalizeStatus(snapshot, accessOptions);
+  status.protocolIssues = await listProtocolIssuesInternal(root, snapshot);
+  status.toolCapabilities = await listAgentToolCapabilities();
   status.capture = await readCaptureStatus(root);
   return status;
 }
@@ -1251,6 +1418,15 @@ async function writeAgentSession(rootPath: string, session: AgentSessionDocument
   await writeJsonAtomic(path.join(paths.sessionsDir, `${session.id}.json`), session);
 }
 
+function sessionPromptArtifactPath(rootPath: string, sessionId: string, kind: "launch" | "recover") {
+  const paths = getBridgePaths(rootPath);
+  return path.join(paths.promptsDir, `${kind}-${sessionId}.md`);
+}
+
+async function writeSessionPromptArtifact(rootPath: string, sessionId: string, kind: "launch" | "recover", prompt: string) {
+  await writeGeneratedFile(sessionPromptArtifactPath(rootPath, sessionId, kind), prompt);
+}
+
 export async function listAgentSessions(rootPath: string, filters: AgentSessionFilters = {}) {
   const root = await ensureBridge(rootPath);
   const snapshot = await loadBridgeSnapshot(root);
@@ -1315,6 +1491,7 @@ export async function launchAgentSession(rootPath: string, payload: AgentSession
     });
 
     await writeAgentSession(lockedRoot, session);
+    await writeSessionPromptArtifact(lockedRoot, session.id, "launch", session.instructions.prompt);
     await createMutationLog(lockedRoot, agent.id, "launch", `Created ${session.toolKind} launch prompt`, {
       sessionId: session.id,
       toolKind: session.toolKind,
@@ -1441,7 +1618,200 @@ export async function getAgentSessionRecovery(rootPath: string, idOrPrefix: stri
     throw new BridgeRuntimeError("NOT_FOUND", `Unknown agent session: ${idOrPrefix}`);
   }
 
-  return deriveAgentSession(snapshot, session);
+  const derived = deriveAgentSession(snapshot, session);
+  if (derived.recovery?.prompt) {
+    await writeSessionPromptArtifact(root, derived.id, "recover", derived.recovery.prompt);
+  }
+  return derived;
+}
+
+export async function getAgentToolCapabilities(rootPath: string): Promise<AibridgeAgentToolCapability[]> {
+  await ensureBridge(rootPath);
+  return listAgentToolCapabilities();
+}
+
+export async function listProtocolIssues(rootPath: string): Promise<AibridgeProtocolIssue[]> {
+  const root = await ensureBridge(rootPath);
+  const snapshot = await loadBridgeSnapshot(root);
+  return listProtocolIssuesInternal(root, snapshot);
+}
+
+async function findProtocolIssue(rootPath: string, issueId: string) {
+  const issues = await listProtocolIssues(rootPath);
+  const issue = issues.find((item) => item.id === issueId);
+  if (!issue) {
+    throw new BridgeRuntimeError("NOT_FOUND", `Unknown protocol issue: ${issueId}`);
+  }
+  return issue;
+}
+
+export async function buildProtocolIssueRepairPrompt(rootPath: string, issueId: string) {
+  const issue = await findProtocolIssue(rootPath, issueId);
+  if (issue.type === "invalid_entity") {
+    return [
+      "AiBridge detected a non-canonical or invalid protocol file.",
+      "",
+      `Issue: ${issue.detail}`,
+      "Do not hand-edit `.aibridge/*.json` files.",
+      'Use the canonical runtime path: npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge <command>"',
+      "",
+      "Repair workflow:",
+      issue.filePath ? `- Remove or repair the invalid file at ${issue.filePath}.` : "- Remove the invalid file.",
+      "- Recreate the intended task, message, handoff, decision, or session state through the AiBridge CLI only.",
+      "- Regenerate context after the corrected state is recorded.",
+    ].join("\n");
+  }
+
+  if (issue.sessionId) {
+    const session = await getAgentSessionRecovery(rootPath, issue.sessionId);
+    return session.recovery?.prompt ?? issue.detail;
+  }
+
+  return issue.detail;
+}
+
+export async function cleanupProtocolIssue(rootPath: string, issueId: string) {
+  const root = await ensureBridge(rootPath);
+  const issue = await findProtocolIssue(root, issueId);
+  if (issue.type !== "invalid_entity" || !issue.filePath) {
+    throw new BridgeRuntimeError("BAD_REQUEST", `Protocol issue ${issueId} does not support cleanup.`);
+  }
+
+  return withBridgeWriteLock(root, async (lockedRoot) => {
+    const absolutePath = path.join(getRepoPath(lockedRoot), issue.filePath);
+    await fs.rm(absolutePath, { force: true });
+    await regenerateContextUnlocked(lockedRoot);
+    return {
+      removedPath: issue.filePath,
+      issueId: issue.id,
+    };
+  });
+}
+
+export async function dispatchAgentSessionLaunch(rootPath: string, idOrPrefix: string) {
+  return updateAgentSessionState(rootPath, idOrPrefix, async (session) => {
+    const result = await dispatchLaunchOrRecovery(
+      session.toolKind,
+      session.repoPath,
+      session.instructions.prompt,
+      session.instructions.filesToAttach ?? [],
+    );
+
+    await createMutationLog(
+      await ensureBridge(rootPath),
+      session.agentId,
+      "dispatch",
+      result.dispatchStatus === "launched"
+        ? `Dispatched ${session.toolKind} launch`
+        : `Unable to dispatch ${session.toolKind} launch`,
+      {
+        sessionId: session.id,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+    );
+
+    return {
+      ...session,
+      instructions: {
+        ...session.instructions,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+    };
+  });
+}
+
+export async function dispatchAgentSessionRecovery(rootPath: string, idOrPrefix: string) {
+  return updateAgentSessionState(rootPath, idOrPrefix, async (session, snapshot) => {
+    const derived = deriveAgentSession(snapshot, session);
+    const prompt = derived.recovery?.prompt;
+    if (!prompt) {
+      throw new BridgeRuntimeError("BAD_REQUEST", `Session ${session.id} does not have a recovery prompt.`);
+    }
+
+    const result = await dispatchLaunchOrRecovery(
+      session.toolKind,
+      session.repoPath,
+      prompt,
+      derived.recovery?.filesToAttach ?? [],
+    );
+    const timestamp = new Date().toISOString();
+
+    await writeSessionPromptArtifact(rootPath, session.id, "recover", prompt);
+    await createMutationLog(
+      await ensureBridge(rootPath),
+      session.agentId,
+      "recover",
+      result.dispatchStatus === "launched"
+        ? `Dispatched recovery prompt for ${session.toolKind}`
+        : `Recovery dispatch needs manual action`,
+      {
+        sessionId: session.id,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+    );
+
+    return {
+      ...session,
+      status: session.toolKind === "codex" && result.dispatchStatus === "launched" ? "active" : session.status,
+      acknowledgedAt: session.toolKind === "codex" && result.dispatchStatus === "launched" ? timestamp : session.acknowledgedAt,
+      acknowledgedContextTimestamp:
+        session.toolKind === "codex" && result.dispatchStatus === "launched" ? snapshot.lastSyncAt : session.acknowledgedContextTimestamp,
+      lastHeartbeatAt: session.toolKind === "codex" && result.dispatchStatus === "launched" ? timestamp : session.lastHeartbeatAt,
+      lastActivityAt: session.toolKind === "codex" && result.dispatchStatus === "launched" ? timestamp : session.lastActivityAt,
+      recovery: {
+        ...derived.recovery,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+    };
+  });
+}
+
+export async function runAgentSessionNonChat(rootPath: string, idOrPrefix: string) {
+  return updateAgentSessionState(rootPath, idOrPrefix, async (session, snapshot) => {
+    if (session.toolKind !== "codex") {
+      throw new BridgeRuntimeError("BAD_REQUEST", `Non-chat execution is only supported for Codex sessions.`);
+    }
+
+    const result = await runCodexNonChat(session.repoPath, session.instructions.prompt);
+    const timestamp = new Date().toISOString();
+    await createMutationLog(
+      await ensureBridge(rootPath),
+      session.agentId,
+      "dispatch",
+      result.dispatchStatus === "launched"
+        ? `Started Codex non-chat execution for ${session.id}`
+        : `Codex non-chat execution failed to launch`,
+      {
+        sessionId: session.id,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+    );
+
+    return {
+      ...session,
+      status: result.dispatchStatus === "launched" ? "active" : session.status,
+      acknowledgedAt: result.dispatchStatus === "launched" ? timestamp : session.acknowledgedAt,
+      acknowledgedContextTimestamp:
+        result.dispatchStatus === "launched" ? snapshot.lastSyncAt : session.acknowledgedContextTimestamp,
+      lastHeartbeatAt: result.dispatchStatus === "launched" ? timestamp : session.lastHeartbeatAt,
+      lastActivityAt: result.dispatchStatus === "launched" ? timestamp : session.lastActivityAt,
+      instructions: {
+        ...session.instructions,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+      recovery: {
+        ...(session.recovery ?? { recommended: false }),
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote,
+      },
+    };
+  });
 }
 
 export async function listDecisions(
@@ -1833,6 +2203,7 @@ async function createMissingStructure(paths: BridgePaths) {
     ensureDir(paths.root),
     ensureDir(paths.captureDir),
     ensureDir(paths.agentsDir),
+    ensureDir(paths.promptsDir),
     ensureDir(paths.tasksDir),
     ensureDir(paths.logsDir),
     ensureDir(paths.handoffsDir),

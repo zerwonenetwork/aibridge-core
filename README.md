@@ -33,7 +33,7 @@ This repository is the **local-first open-core foundation**:
 | **Dashboard** | Local reference UI at `/dashboard` |
 | **Setup** | Template-driven engine + onboarding wizard |
 | **Capture** | Git hooks + file watcher |
-| **Agents** | Launch, heartbeat, recovery reliability layer |
+| **Agents** | UI-first launch center, recovery, protocol repair, and adapter-backed execution |
 
 > **Note:** Hosted commercial control-plane features live in a separate product repository and are **not** included here.
 
@@ -73,7 +73,7 @@ This repository is the **local-first open-core foundation**:
 - **Local service** — at `http://127.0.0.1:4545` (HTTP + SSE)
 - **Setup engine** — reusable templates and generated starter plans
 - **Capture** — git hooks + file watcher for automatic activity capture
-- **Agent reliability** — launch prompts, session lifecycle, heartbeats, stale detection, recovery prompts
+- **Agent reliability** — launch prompts, session lifecycle, heartbeats, stale detection, recovery prompts, protocol repair
 
 ---
 
@@ -210,6 +210,7 @@ npm run aibridge -- agent launch --agent cursor --tool cursor
 
 - **`release`** and **`announcement`** are not part of AiBridge Core CLI; they are handled by the separate commercial product.
 - **`sync`** is intentionally not implemented; AiBridge Core is local-first and does not ship full cloud sync.
+- **Humans should stay in the UI.** The dashboard is the primary path for setup, launch, recovery, and review. The CLI remains the canonical mutation/runtime surface for agents and advanced automation.
 
 ---
 
@@ -221,7 +222,7 @@ AiBridge Core ships a **local dashboard** reference app.
   <img src="public/og-image--.png" alt="AiBridge Core dashboard preview" width="880" />
 </p>
 
-**Views:** Overview · Tasks · Activity · Messages · Agents · Conventions · Decisions · Settings
+**Views:** Overview · Inbox · Tasks · Activity · Messages · Agents · Conventions · Decisions · Settings
 
 The dashboard uses the local service and reads local `.aibridge` state. It does **not** include a hosted `/app` control plane.
 
@@ -230,6 +231,19 @@ When no bridge is available, the dashboard can:
 - Open sample bridge data
 - Point at an existing local bridge
 - Launch a lightweight setup flow using the shared setup engine
+
+The **Agent Launch Center** in `/dashboard` now supports:
+
+- **Cursor** — prompt-copy + generated rules/context files
+- **Antigravity** — direct `antigravity chat` dispatch when installed
+- **Codex** — non-chat execution path when the local Codex CLI supports it
+
+The **Coordinator Inbox** surfaces:
+
+- unread messages
+- open handoffs
+- stale/failed sessions
+- protocol issues such as invalid hand-written `.aibridge/*.json` files
 
 ---
 
@@ -268,7 +282,13 @@ npm run aibridge -- capture watch --agent cursor
 
 Launch-handshake model so you don’t have to manually message agents to start or recover them.
 
-**Features:** tool-specific launch prompts · pending → active → stale → stopped lifecycle · heartbeats · stale detection · recovery prompts
+**Features:** tool-specific launch prompts · pending → active → stale → stopped lifecycle · heartbeats · stale detection · recovery prompts · attached context files · dispatch status · protocol repair prompts
+
+**Adapter behavior:**
+
+- **Cursor** — generated rules + prompt copy; no claimed foreground chat injection
+- **Antigravity** — `antigravity chat` launch/recovery dispatch
+- **Codex** — best-effort non-chat execution path with prompt artifacts in `.aibridge/prompts/`
 
 ```bash
 npm run aibridge -- agent launch --agent codex --tool codex
@@ -287,7 +307,7 @@ The local service exposes bridge state over **HTTP** and **SSE**.
 npm run aibridge:service
 ```
 
-**Endpoints:** `GET /health` · `GET /bridge/status` · `GET /bridge/events` · `GET /bridge/setup/templates` · `POST /bridge/setup/plan` · `POST /bridge/setup/init` · entity endpoints for tasks, messages, handoffs, decisions, conventions, logs, agent sessions.
+**Endpoints:** `GET /health` · `GET /bridge/status` · `GET /bridge/events` · `GET /bridge/setup/templates` · `POST /bridge/setup/plan` · `POST /bridge/setup/init` · `GET /bridge/agents/capabilities` · `GET /bridge/protocol/issues` · entity endpoints for tasks, messages, handoffs, decisions, conventions, logs, and agent sessions.
 
 ---
 

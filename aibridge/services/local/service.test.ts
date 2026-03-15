@@ -241,6 +241,35 @@ describe("standalone local bridge service", () => {
     expect(listBody.data.some((session: { id: string }) => session.id === sessionId)).toBe(true);
   });
 
+  it("serves adapter capabilities plus protocol issue repair and cleanup endpoints", async () => {
+    const capabilitiesResponse = await fetch(`${baseUrl}/bridge/agents/capabilities?source=workspace`);
+    expect(capabilitiesResponse.status).toBe(200);
+    const capabilitiesBody = await capabilitiesResponse.json();
+    expect(capabilitiesBody.data.some((item: { tool: string }) => item.tool === "antigravity")).toBe(true);
+
+    const invalidPath = path.join(testRoot, ".aibridge", "handoffs", "handoff-invalid.json");
+    await writeFile(invalidPath, "{\"id\":\"handoff-invalid\"}\n", "utf8");
+
+    const issuesResponse = await fetch(`${baseUrl}/bridge/protocol/issues?source=workspace`);
+    expect(issuesResponse.status).toBe(200);
+    const issuesBody = await issuesResponse.json();
+    const invalidIssue = issuesBody.data.find((issue: { type: string }) => issue.type === "invalid_entity");
+    expect(invalidIssue.filePath).toContain("handoff-invalid.json");
+
+    const repairResponse = await fetch(`${baseUrl}/bridge/protocol/issues/${invalidIssue.id}/repair-prompt?source=workspace`);
+    expect(repairResponse.status).toBe(200);
+    const repairBody = await repairResponse.json();
+    expect(repairBody.data.prompt).toContain("Do not hand-edit `.aibridge/*.json` files.");
+
+    const cleanupResponse = await fetch(`${baseUrl}/bridge/protocol/issues/${invalidIssue.id}/cleanup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "workspace" }),
+    });
+    expect(cleanupResponse.status).toBe(200);
+    await expect(readFile(invalidPath, "utf8")).rejects.toThrow();
+  });
+
   it("enforces admin mutations and filters release center visibility for viewers", async () => {
     const viewerCreate = await fetch(`${baseUrl}/bridge/releases`, {
       method: "POST",

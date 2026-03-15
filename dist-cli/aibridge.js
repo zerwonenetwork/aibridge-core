@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
 // aibridge/cli/src/main.ts
-import { promises as fs6 } from "fs";
-import os from "os";
-import path6 from "path";
+import { promises as fs7 } from "fs";
+import os2 from "os";
+import path7 from "path";
 import readline from "readline/promises";
 
 // aibridge/runtime/store.ts
-import { randomUUID as randomUUID2 } from "crypto";
-import { promises as fs2 } from "fs";
+import { randomUUID as randomUUID3 } from "crypto";
+import { promises as fs3 } from "fs";
 import { existsSync } from "fs";
-import path2 from "path";
+import path3 from "path";
 import { fileURLToPath } from "url";
 
 // aibridge/runtime/context.ts
@@ -314,6 +314,245 @@ function parseContextTimestamp(markdown) {
   return match?.[1]?.trim();
 }
 
+// aibridge/runtime/adapters.ts
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
+import { randomUUID } from "crypto";
+import { spawn } from "child_process";
+var DETECT_TIMEOUT_MS = 1500;
+var CAPABILITY_DEFAULTS = {
+  cursor: {
+    promptCopy: true,
+    uiDispatch: false,
+    recoveryDispatch: false,
+    nonChatExec: false,
+    fileAttach: false,
+    generatedRules: true,
+    mcpSupport: true
+  },
+  antigravity: {
+    promptCopy: true,
+    uiDispatch: true,
+    recoveryDispatch: true,
+    nonChatExec: false,
+    fileAttach: true,
+    generatedRules: false,
+    mcpSupport: true
+  },
+  codex: {
+    promptCopy: true,
+    uiDispatch: false,
+    recoveryDispatch: false,
+    nonChatExec: true,
+    fileAttach: true,
+    generatedRules: true,
+    mcpSupport: false
+  }
+};
+function launchModeForTool(toolKind) {
+  if (toolKind === "antigravity") {
+    return "ui_dispatch";
+  }
+  if (toolKind === "codex") {
+    return "non_chat_exec";
+  }
+  return "prompt_copy";
+}
+function powerShellQuote(value) {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+async function captureCommand(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      resolve({ ok: false, stdout, stderr });
+    }, DETECT_TIMEOUT_MS);
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", () => {
+      clearTimeout(timeout);
+      resolve({ ok: false, stdout, stderr });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      resolve({ ok: code === 0, stdout, stderr });
+    });
+  });
+}
+async function resolveCommandPath(command) {
+  const checker = process.platform === "win32" ? "where" : "which";
+  const result = await captureCommand(checker, [command]);
+  if (!result.ok) {
+    return null;
+  }
+  return result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? null;
+}
+async function launchDetached(commandPath, args, cwd) {
+  if (process.platform === "win32") {
+    const script = [`& ${powerShellQuote(commandPath)}`, ...args.map(powerShellQuote)].join(" ");
+    const child2 = spawn(
+      "powershell.exe",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      {
+        cwd,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true
+      }
+    );
+    child2.unref();
+    return;
+  }
+  const child = spawn(commandPath, args, {
+    cwd,
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+}
+async function writeTemporaryPrompt(prompt) {
+  const promptFile = path.join(os.tmpdir(), `aibridge-codex-${randomUUID()}.prompt.md`);
+  await fs.writeFile(promptFile, prompt, "utf8");
+  return promptFile;
+}
+async function detectCodexSubcommand() {
+  const help = await captureCommand("codex", ["--help"]);
+  const output = `${help.stdout}
+${help.stderr}`;
+  if (/\bexec\b/i.test(output)) {
+    return "exec";
+  }
+  if (/\brun\b/i.test(output)) {
+    return "run";
+  }
+  return "exec";
+}
+async function listAgentToolCapabilities() {
+  const entries = await Promise.all(
+    Object.keys(CAPABILITY_DEFAULTS).map(async (tool) => {
+      const command = tool === "antigravity" ? "antigravity" : tool;
+      const commandPath = await resolveCommandPath(command);
+      return {
+        tool,
+        installed: Boolean(commandPath),
+        version: void 0,
+        ...CAPABILITY_DEFAULTS[tool]
+      };
+    })
+  );
+  return entries;
+}
+function launchPresentation(toolKind, sessionId, agentConfigPath) {
+  if (toolKind === "antigravity") {
+    return {
+      mode: launchModeForTool(toolKind),
+      title: "Launch in Antigravity",
+      subtitle: "AiBridge can open an Antigravity agent session directly or give you a copy-safe prompt.",
+      filesToAttach: [".aibridge/CONTEXT.md", "AGENTS.md", agentConfigPath],
+      commandPreview: `antigravity chat "<prompt>" --mode agent --reuse-window --add-file ".aibridge/CONTEXT.md" --add-file "AGENTS.md" --add-file "${agentConfigPath}"`
+    };
+  }
+  if (toolKind === "codex") {
+    return {
+      mode: launchModeForTool(toolKind),
+      title: "Run with Codex",
+      subtitle: "AiBridge can attempt a non-chat Codex execution, then fall back to copy-safe prompts.",
+      filesToAttach: [".aibridge/CONTEXT.md", "AGENTS.md", agentConfigPath],
+      commandPreview: `codex exec --prompt-file ".aibridge/prompts/launch-${sessionId}.md"`
+    };
+  }
+  return {
+    mode: launchModeForTool(toolKind),
+    title: "What to paste into Cursor",
+    subtitle: "Cursor uses the launch prompt plus generated rules and context files.",
+    filesToAttach: [".aibridge/CONTEXT.md", ".cursor/rules/aibridge.mdc", agentConfigPath],
+    commandPreview: void 0
+  };
+}
+function recoveryPresentation(toolKind, sessionId) {
+  if (toolKind === "antigravity") {
+    return {
+      mode: launchModeForTool(toolKind),
+      filesToAttach: [".aibridge/CONTEXT.md", "AGENTS.md"],
+      commandPreview: `antigravity chat "<recovery prompt>" --mode agent --reuse-window --add-file ".aibridge/CONTEXT.md" --add-file "AGENTS.md"`
+    };
+  }
+  if (toolKind === "codex") {
+    return {
+      mode: launchModeForTool(toolKind),
+      filesToAttach: [".aibridge/CONTEXT.md", "AGENTS.md"],
+      commandPreview: `codex exec --prompt-file ".aibridge/prompts/recover-${sessionId}.md"`
+    };
+  }
+  return {
+    mode: launchModeForTool(toolKind),
+    filesToAttach: [".aibridge/CONTEXT.md", ".cursor/rules/aibridge.mdc"],
+    commandPreview: void 0
+  };
+}
+async function dispatchLaunchOrRecovery(toolKind, repoRoot, prompt, filesToAttach) {
+  if (toolKind === "cursor") {
+    return {
+      dispatchStatus: "unsupported",
+      dispatchNote: "Cursor foreground chat injection is not exposed as a stable local API. Copy the prompt into Cursor instead."
+    };
+  }
+  if (toolKind === "antigravity") {
+    const commandPath = await resolveCommandPath("antigravity");
+    if (!commandPath) {
+      return {
+        dispatchStatus: "failed",
+        dispatchNote: "Antigravity is not installed or not available on PATH."
+      };
+    }
+    const args = ["chat", prompt, "--mode", "agent", "--reuse-window"];
+    for (const file of filesToAttach) {
+      args.push("--add-file", file);
+    }
+    await launchDetached(commandPath, args, repoRoot);
+    return {
+      dispatchStatus: "launched",
+      dispatchNote: "Antigravity launch command was dispatched from AiBridge."
+    };
+  }
+  return runCodexNonChat(repoRoot, prompt);
+}
+async function runCodexNonChat(repoRoot, prompt) {
+  const commandPath = await resolveCommandPath("codex");
+  if (!commandPath) {
+    return {
+      dispatchStatus: "failed",
+      dispatchNote: "Codex is not installed or not available on PATH."
+    };
+  }
+  const subcommand = await detectCodexSubcommand();
+  const promptFile = await writeTemporaryPrompt(prompt);
+  const candidateArgs = subcommand === "run" ? [subcommand, "--prompt-file", promptFile] : [subcommand, "--prompt-file", promptFile];
+  try {
+    await launchDetached(commandPath, candidateArgs, repoRoot);
+    return {
+      dispatchStatus: "launched",
+      dispatchNote: "Codex non-chat execution was dispatched from AiBridge."
+    };
+  } catch (error2) {
+    return {
+      dispatchStatus: "failed",
+      dispatchNote: `Codex dispatch failed: ${error2.message}`
+    };
+  }
+}
+
 // aibridge/runtime/agent-sessions.ts
 var ACTIVE_STALE_MS = 10 * 60 * 1e3;
 var PENDING_STALE_MS = 5 * 60 * 1e3;
@@ -362,6 +601,7 @@ function buildLaunchInstructionSet(snapshot, agent, toolKind, sessionId, launchS
     "If you are blocked or handing off, create a handoff or warning message in AiBridge.",
     "Regenerate context after meaningful state changes."
   ];
+  const presentation = launchPresentation(toolKind, sessionId, agent.configPath);
   const supportiveFile = toolKind === "cursor" ? ".cursor/rules/aibridge.mdc" : "AGENTS.md";
   const toolLabel = toolKind === "cursor" ? "Cursor" : toolKind === "codex" ? "Codex" : "Antigravity";
   const promptSections = [
@@ -399,10 +639,16 @@ ${handoffs.map((handoff) => `- ${handoff.fromAgentId}: ${handoff.description}`).
     toolKind,
     launchSource,
     generatedAt,
+    mode: presentation.mode,
+    title: presentation.title,
+    subtitle: presentation.subtitle,
     prompt: promptSections.join("\n"),
     firstSteps,
     checklist,
-    cliCommand
+    cliCommand,
+    filesToAttach: presentation.filesToAttach,
+    commandPreview: presentation.commandPreview,
+    dispatchStatus: "not_attempted"
   };
 }
 function buildRecoveryPromptFromReason(snapshot, session, reason, lastActivityAt) {
@@ -436,6 +682,7 @@ ${recentLogs.map((entry) => `- ${entry.timestamp}: ${entry.description}`).join("
   ].join("\n");
 }
 function deriveAgentSession(snapshot, session, now = (/* @__PURE__ */ new Date()).toISOString()) {
+  const presentation = recoveryPresentation(session.toolKind, session.id);
   const latestLogActivity = snapshot.logs.filter((entry) => entry.agentId === session.agentId && entry.timestamp >= session.launchedAt).sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0]?.timestamp;
   const lastActivityAt = pickLatestTimestamp(session.lastActivityAt, session.lastHeartbeatAt, latestLogActivity);
   const currentTaskIds = listAssignedTasks(snapshot, session.agentId).map((task) => task.id);
@@ -467,7 +714,12 @@ function deriveAgentSession(snapshot, session, now = (/* @__PURE__ */ new Date()
       recommended: Boolean(reason),
       reason,
       prompt: recoveryPrompt,
-      generatedAt: recoveryPrompt ? now : session.recovery?.generatedAt
+      generatedAt: recoveryPrompt ? now : session.recovery?.generatedAt,
+      mode: presentation.mode,
+      filesToAttach: presentation.filesToAttach,
+      commandPreview: presentation.commandPreview,
+      dispatchStatus: session.recovery?.dispatchStatus,
+      dispatchNote: session.recovery?.dispatchNote
     }
   };
 }
@@ -519,6 +771,8 @@ var setupAgentModes = ["single-agent", "multi-agent"];
 var agentToolKinds = ["cursor", "codex", "antigravity"];
 var agentSessionStatuses = ["pending", "active", "stale", "stopped", "failed"];
 var agentLaunchSources = ["dashboard", "app", "cli"];
+var agentLaunchModes = ["prompt_copy", "ui_dispatch", "background_remote", "non_chat_exec"];
+var agentDispatchStatuses = ["not_attempted", "launched", "unsupported", "failed"];
 var agentSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -606,7 +860,12 @@ var agentRecoveryStateSchema = z.object({
   recommended: z.boolean(),
   reason: z.string().min(1).optional(),
   prompt: z.string().min(1).optional(),
-  generatedAt: z.string().datetime().optional()
+  generatedAt: z.string().datetime().optional(),
+  mode: z.enum(agentLaunchModes).optional(),
+  filesToAttach: z.array(z.string().min(1)).default([]),
+  commandPreview: z.string().min(1).optional(),
+  dispatchStatus: z.enum(agentDispatchStatuses).optional(),
+  dispatchNote: z.string().min(1).optional()
 });
 var launchInstructionSetSchema = z.object({
   sessionId: z.string().min(1),
@@ -614,10 +873,17 @@ var launchInstructionSetSchema = z.object({
   toolKind: z.enum(agentToolKinds),
   launchSource: z.enum(agentLaunchSources),
   generatedAt: z.string().datetime(),
+  mode: z.enum(agentLaunchModes),
+  title: z.string().min(1),
+  subtitle: z.string().min(1).optional(),
   prompt: z.string().min(1),
   firstSteps: z.array(z.string().min(1)).default([]),
   checklist: z.array(z.string().min(1)).default([]),
   cliCommand: z.string().min(1),
+  filesToAttach: z.array(z.string().min(1)).default([]),
+  commandPreview: z.string().min(1).optional(),
+  dispatchStatus: z.enum(agentDispatchStatuses).default("not_attempted"),
+  dispatchNote: z.string().min(1).optional(),
   recoveryPrompt: z.string().min(1).optional()
 });
 var agentSessionSchema = z.object({
@@ -670,18 +936,18 @@ var announcementSchema = z.object({
 });
 
 // aibridge/services/capture/state.ts
-import { randomUUID } from "crypto";
-import { promises as fs } from "fs";
-import path from "path";
+import { randomUUID as randomUUID2 } from "crypto";
+import { promises as fs2 } from "fs";
+import path2 from "path";
 var CAPTURE_DIRNAME = "capture";
 var CAPTURE_STATUS_FILE = "status.json";
 var VALIDATION_WARNINGS_FILE = "validation-errors.jsonl";
 function getCapturePaths(rootPath) {
-  const captureDir = path.join(rootPath, CAPTURE_DIRNAME);
+  const captureDir = path2.join(rootPath, CAPTURE_DIRNAME);
   return {
     captureDir,
-    statusFile: path.join(captureDir, CAPTURE_STATUS_FILE),
-    validationWarningsFile: path.join(captureDir, VALIDATION_WARNINGS_FILE)
+    statusFile: path2.join(captureDir, CAPTURE_STATUS_FILE),
+    validationWarningsFile: path2.join(captureDir, VALIDATION_WARNINGS_FILE)
   };
 }
 function defaultCaptureStatus() {
@@ -696,14 +962,14 @@ function defaultCaptureStatus() {
 }
 async function fileExists(targetPath) {
   try {
-    await fs.access(targetPath);
+    await fs2.access(targetPath);
     return true;
   } catch {
     return false;
   }
 }
 async function ensureDir(targetPath) {
-  await fs.mkdir(targetPath, { recursive: true });
+  await fs2.mkdir(targetPath, { recursive: true });
 }
 function isWatcherProcessAlive(pid) {
   if (!pid || !Number.isInteger(pid) || pid <= 0) {
@@ -718,14 +984,14 @@ function isWatcherProcessAlive(pid) {
   }
 }
 async function writeJsonAtomic(targetPath, value) {
-  await ensureDir(path.dirname(targetPath));
-  const tempPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
+  await ensureDir(path2.dirname(targetPath));
+  const tempPath = `${targetPath}.${process.pid}.${randomUUID2()}.tmp`;
   try {
-    await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}
+    await fs2.writeFile(tempPath, `${JSON.stringify(value, null, 2)}
 `, "utf8");
-    await fs.rename(tempPath, targetPath);
+    await fs2.rename(tempPath, targetPath);
   } catch (error2) {
-    await fs.rm(tempPath, { force: true }).catch(() => void 0);
+    await fs2.rm(tempPath, { force: true }).catch(() => void 0);
     throw error2;
   }
 }
@@ -788,7 +1054,7 @@ async function readCaptureStatus(rootPath) {
     return defaults;
   }
   try {
-    const raw = await fs.readFile(statusFile, "utf8");
+    const raw = await fs2.readFile(statusFile, "utf8");
     return normalizeCaptureStatus(mergeCaptureStatus(defaults, JSON.parse(raw)));
   } catch {
     return defaults;
@@ -807,7 +1073,7 @@ async function updateCaptureStatus(rootPath, update) {
 async function appendCaptureValidationWarning(rootPath, warning2) {
   const { captureDir, validationWarningsFile } = getCapturePaths(rootPath);
   await ensureDir(captureDir);
-  await fs.appendFile(validationWarningsFile, `${JSON.stringify(warning2)}
+  await fs2.appendFile(validationWarningsFile, `${JSON.stringify(warning2)}
 `, "utf8");
 }
 async function markWatcherStopped(rootPath, reason) {
@@ -829,7 +1095,7 @@ var BRIDGE_WRITE_LOCK = ".aibridge.write.lock";
 var LOCK_POLL_INTERVAL_MS = 50;
 var LOCK_STALE_MS = 3e4;
 var LOCK_TIMEOUT_MS = 1e4;
-var RUNTIME_DIR = path2.dirname(fileURLToPath(import.meta.url));
+var RUNTIME_DIR = path3.dirname(fileURLToPath(import.meta.url));
 function resolveFirstExistingPath(candidates) {
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
@@ -837,12 +1103,12 @@ function resolveFirstExistingPath(candidates) {
   return candidates[0];
 }
 var PROTOCOL_TEMPLATES_ROOT = resolveFirstExistingPath([
-  path2.resolve(RUNTIME_DIR, "../protocol/templates"),
-  path2.resolve(RUNTIME_DIR, "aibridge/protocol/templates")
+  path3.resolve(RUNTIME_DIR, "../protocol/templates"),
+  path3.resolve(RUNTIME_DIR, "aibridge/protocol/templates")
 ]);
 var SAMPLE_BRIDGE_ROOT = resolveFirstExistingPath([
-  path2.resolve(RUNTIME_DIR, "../../public/examples/aibridge/local-bridge"),
-  path2.resolve(RUNTIME_DIR, "public/examples/aibridge/local-bridge")
+  path3.resolve(RUNTIME_DIR, "../../public/examples/aibridge/local-bridge"),
+  path3.resolve(RUNTIME_DIR, "public/examples/aibridge/local-bridge")
 ]);
 var AGENT_LABELS = {
   cursor: "Cursor",
@@ -866,32 +1132,33 @@ function getBridgePaths(root) {
   return {
     root,
     repoRoot,
-    bridgeFile: path2.join(root, "bridge.json"),
-    contextFile: path2.join(root, "CONTEXT.md"),
-    conventionsFile: path2.join(root, "CONVENTIONS.md"),
-    captureDir: path2.join(root, "capture"),
-    agentsDir: path2.join(root, "agents"),
-    tasksDir: path2.join(root, "tasks"),
-    logsDir: path2.join(root, "logs"),
-    handoffsDir: path2.join(root, "handoffs"),
-    decisionsDir: path2.join(root, "decisions"),
-    conventionsDir: path2.join(root, "conventions"),
-    messagesDir: path2.join(root, "messages"),
-    releasesDir: path2.join(root, "releases"),
-    announcementsDir: path2.join(root, "announcements"),
-    sessionsDir: path2.join(root, "sessions")
+    bridgeFile: path3.join(root, "bridge.json"),
+    contextFile: path3.join(root, "CONTEXT.md"),
+    conventionsFile: path3.join(root, "CONVENTIONS.md"),
+    promptsDir: path3.join(root, "prompts"),
+    captureDir: path3.join(root, "capture"),
+    agentsDir: path3.join(root, "agents"),
+    tasksDir: path3.join(root, "tasks"),
+    logsDir: path3.join(root, "logs"),
+    handoffsDir: path3.join(root, "handoffs"),
+    decisionsDir: path3.join(root, "decisions"),
+    conventionsDir: path3.join(root, "conventions"),
+    messagesDir: path3.join(root, "messages"),
+    releasesDir: path3.join(root, "releases"),
+    announcementsDir: path3.join(root, "announcements"),
+    sessionsDir: path3.join(root, "sessions")
   };
 }
 async function fileExists2(targetPath) {
   try {
-    await fs2.access(targetPath);
+    await fs3.access(targetPath);
     return true;
   } catch {
     return false;
   }
 }
 async function ensureDir2(targetPath) {
-  await fs2.mkdir(targetPath, { recursive: true });
+  await fs3.mkdir(targetPath, { recursive: true });
 }
 async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -905,23 +1172,23 @@ function buildAgent(kind) {
   };
 }
 async function normalizeBridgeRoot(targetPath) {
-  const explicitBridge = path2.resolve(targetPath);
-  if (await fileExists2(path2.join(explicitBridge, "bridge.json"))) {
+  const explicitBridge = path3.resolve(targetPath);
+  if (await fileExists2(path3.join(explicitBridge, "bridge.json"))) {
     return explicitBridge;
   }
-  const nestedBridge = path2.join(explicitBridge, DEFAULT_BRIDGE_DIRNAME);
-  if (await fileExists2(path2.join(nestedBridge, "bridge.json"))) {
+  const nestedBridge = path3.join(explicitBridge, DEFAULT_BRIDGE_DIRNAME);
+  if (await fileExists2(path3.join(nestedBridge, "bridge.json"))) {
     return nestedBridge;
   }
   return explicitBridge;
 }
 async function acquireBridgeWriteLock(rootPath) {
   await ensureDir2(rootPath);
-  const lockPath = path2.join(rootPath, BRIDGE_WRITE_LOCK);
+  const lockPath = path3.join(rootPath, BRIDGE_WRITE_LOCK);
   const startedAt = Date.now();
   while (true) {
     try {
-      const handle = await fs2.open(lockPath, "wx");
+      const handle = await fs3.open(lockPath, "wx");
       await handle.writeFile(
         `${JSON.stringify({
           pid: process.pid,
@@ -932,7 +1199,7 @@ async function acquireBridgeWriteLock(rootPath) {
       );
       return async () => {
         await handle.close().catch(() => void 0);
-        await fs2.rm(lockPath, { force: true }).catch(() => void 0);
+        await fs3.rm(lockPath, { force: true }).catch(() => void 0);
       };
     } catch (error2) {
       const lockError = error2;
@@ -940,9 +1207,9 @@ async function acquireBridgeWriteLock(rootPath) {
         throw lockError;
       }
       try {
-        const metadata = await fs2.stat(lockPath);
+        const metadata = await fs3.stat(lockPath);
         if (Date.now() - metadata.mtimeMs > LOCK_STALE_MS) {
-          await fs2.rm(lockPath, { force: true }).catch(() => void 0);
+          await fs3.rm(lockPath, { force: true }).catch(() => void 0);
           continue;
         }
       } catch (statError) {
@@ -979,30 +1246,30 @@ async function resolveBridgeRoot(options = {}) {
     if (!options.customRoot?.trim()) {
       throw new BridgeRuntimeError("BAD_REQUEST", "A custom bridge path is required for custom local mode.");
     }
-    return normalizeBridgeRoot(path2.resolve(cwd, options.customRoot));
+    return normalizeBridgeRoot(path3.resolve(cwd, options.customRoot));
   }
-  return normalizeBridgeRoot(path2.resolve(cwd, DEFAULT_BRIDGE_DIRNAME));
+  return normalizeBridgeRoot(path3.resolve(cwd, DEFAULT_BRIDGE_DIRNAME));
 }
 async function readTextIfExists(targetPath) {
   if (!await fileExists2(targetPath)) {
     return "";
   }
-  return fs2.readFile(targetPath, "utf8");
+  return fs3.readFile(targetPath, "utf8");
 }
 async function readJsonFile(targetPath, parse, issues) {
   try {
-    const raw = await fs2.readFile(targetPath, "utf8");
+    const raw = await fs3.readFile(targetPath, "utf8");
     const parsed = JSON.parse(raw);
     const result = parse(parsed);
     if (!result.success) {
       issues.push(
-        `Invalid ${path2.basename(targetPath)}: ${result.error.issues.map((issue) => issue.message).join(", ")}`
+        `Invalid ${path3.basename(targetPath)}: ${result.error.issues.map((issue) => issue.message).join(", ")}`
       );
       return null;
     }
     return result.data;
   } catch (error2) {
-    issues.push(`Unable to read ${path2.basename(targetPath)}: ${error2.message}`);
+    issues.push(`Unable to read ${path3.basename(targetPath)}: ${error2.message}`);
     return null;
   }
 }
@@ -1010,15 +1277,143 @@ async function readJsonCollection(dirPath, parse, issues) {
   if (!await fileExists2(dirPath)) {
     return [];
   }
-  const entries = (await fs2.readdir(dirPath)).filter((name) => name.endsWith(".json")).sort((left, right) => left.localeCompare(right));
+  const entries = (await fs3.readdir(dirPath)).filter((name) => name.endsWith(".json")).sort((left, right) => left.localeCompare(right));
   const data = [];
   for (const entry of entries) {
-    const item = await readJsonFile(path2.join(dirPath, entry), parse, issues);
+    const item = await readJsonFile(path3.join(dirPath, entry), parse, issues);
     if (item) {
       data.push(item);
     }
   }
   return data;
+}
+function toProtocolIssueId(prefix, value) {
+  return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
+}
+function singularEntityKind(dirName) {
+  switch (dirName) {
+    case "tasks":
+      return "task";
+    case "messages":
+      return "message";
+    case "handoffs":
+      return "handoff";
+    case "decisions":
+      return "decision";
+    case "conventions":
+      return "convention";
+    case "releases":
+      return "release";
+    case "announcements":
+      return "announcement";
+    default:
+      return "session";
+  }
+}
+async function buildInvalidEntityIssues(paths) {
+  const collections = [
+    { dirPath: paths.tasksDir, dirName: "tasks", parse: taskSchema.safeParse.bind(taskSchema) },
+    { dirPath: paths.messagesDir, dirName: "messages", parse: messageSchema.safeParse.bind(messageSchema) },
+    { dirPath: paths.handoffsDir, dirName: "handoffs", parse: handoffSchema.safeParse.bind(handoffSchema) },
+    { dirPath: paths.decisionsDir, dirName: "decisions", parse: decisionSchema.safeParse.bind(decisionSchema) },
+    { dirPath: paths.conventionsDir, dirName: "conventions", parse: conventionSchema.safeParse.bind(conventionSchema) },
+    { dirPath: paths.releasesDir, dirName: "releases", parse: releaseSchema.safeParse.bind(releaseSchema) },
+    { dirPath: paths.announcementsDir, dirName: "announcements", parse: announcementSchema.safeParse.bind(announcementSchema) },
+    { dirPath: paths.sessionsDir, dirName: "sessions", parse: agentSessionSchema.safeParse.bind(agentSessionSchema) }
+  ];
+  const issues = [];
+  for (const collection of collections) {
+    if (!await fileExists2(collection.dirPath)) {
+      continue;
+    }
+    const entries = (await fs3.readdir(collection.dirPath)).filter((entry) => entry.endsWith(".json")).sort((left, right) => left.localeCompare(right));
+    for (const entry of entries) {
+      const fullPath = path3.join(collection.dirPath, entry);
+      const relativePath = path3.relative(paths.repoRoot, fullPath).replaceAll("\\", "/");
+      try {
+        const raw = await fs3.readFile(fullPath, "utf8");
+        const parsed = JSON.parse(raw);
+        const result = collection.parse(parsed);
+        if (result.success) {
+          continue;
+        }
+        const agentId = typeof parsed?.agentId === "string" ? parsed.agentId : typeof parsed?.fromAgentId === "string" ? parsed.fromAgentId : void 0;
+        issues.push({
+          id: toProtocolIssueId("invalid", relativePath),
+          type: "invalid_entity",
+          severity: "critical",
+          title: `Invalid ${singularEntityKind(collection.dirName)} file`,
+          detail: `${relativePath}: ${result.error.issues.map((issue) => issue.message).join(", ")}`,
+          agentId,
+          entityKind: singularEntityKind(collection.dirName),
+          filePath: relativePath,
+          recommendedAction: "cleanup_and_reprompt"
+        });
+      } catch (error2) {
+        issues.push({
+          id: toProtocolIssueId("invalid", relativePath),
+          type: "invalid_entity",
+          severity: "critical",
+          title: `Unreadable ${singularEntityKind(collection.dirName)} file`,
+          detail: `${relativePath}: ${error2.message}`,
+          entityKind: singularEntityKind(collection.dirName),
+          filePath: relativePath,
+          recommendedAction: "cleanup_and_reprompt"
+        });
+      }
+    }
+  }
+  return issues;
+}
+function buildSessionProtocolIssues(snapshot) {
+  return snapshot.sessions.map((session) => deriveAgentSession(snapshot, session)).flatMap((session) => {
+    if (session.status === "stale" && session.recovery?.reason) {
+      return [{
+        id: `session-${session.id}-stale`,
+        type: "stale_session",
+        severity: "warning",
+        title: `${session.agentId} needs recovery`,
+        detail: session.recovery.reason,
+        agentId: session.agentId,
+        sessionId: session.id,
+        entityKind: "session",
+        recommendedAction: "copy_recovery_prompt"
+      }];
+    }
+    if (session.status === "failed") {
+      return [{
+        id: `session-${session.id}-failed`,
+        type: "failed_session",
+        severity: "critical",
+        title: `${session.agentId} session failed`,
+        detail: session.failureReason ?? session.recovery?.reason ?? "Agent session failed and needs review.",
+        agentId: session.agentId,
+        sessionId: session.id,
+        entityKind: "session",
+        recommendedAction: "review_session"
+      }];
+    }
+    if (session.status === "stopped" && (session.currentTaskIds?.length ?? 0) > 0) {
+      return [{
+        id: `session-${session.id}-stopped`,
+        type: "stopped_with_work",
+        severity: "warning",
+        title: `${session.agentId} stopped with open work`,
+        detail: session.stoppedReason ?? "Agent session stopped while assigned work remained.",
+        agentId: session.agentId,
+        sessionId: session.id,
+        entityKind: "session",
+        recommendedAction: "review_session"
+      }];
+    }
+    return [];
+  });
+}
+async function listProtocolIssuesInternal(rootPath, snapshot) {
+  const root = await normalizeBridgeRoot(rootPath);
+  const paths = getBridgePaths(root);
+  const invalidIssues = await buildInvalidEntityIssues(paths);
+  return [...invalidIssues, ...buildSessionProtocolIssues(snapshot)];
 }
 function parseConventionMetadata(rawMetadata) {
   const metadata = {};
@@ -1056,7 +1451,7 @@ async function parseConventions(conventionsFile, defaultAddedAt, issues) {
   if (!await fileExists2(conventionsFile)) {
     return [];
   }
-  const markdown = await fs2.readFile(conventionsFile, "utf8");
+  const markdown = await fs3.readFile(conventionsFile, "utf8");
   const conventions = markdown.split(/\r?\n/).map((line, index) => parseConventionLine(line, index, defaultAddedAt)).filter(Boolean);
   return conventions;
 }
@@ -1084,11 +1479,11 @@ async function parseLogFiles(logsDir, issues) {
   if (!await fileExists2(logsDir)) {
     return [];
   }
-  const entries = (await fs2.readdir(logsDir)).filter((name) => name.endsWith(".jsonl")).sort((left, right) => left.localeCompare(right));
+  const entries = (await fs3.readdir(logsDir)).filter((name) => name.endsWith(".jsonl")).sort((left, right) => left.localeCompare(right));
   const logs = [];
   for (const entry of entries) {
-    const fullPath = path2.join(logsDir, entry);
-    const raw = await fs2.readFile(fullPath, "utf8");
+    const fullPath = path3.join(logsDir, entry);
+    const raw = await fs3.readFile(fullPath, "utf8");
     const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     for (const [lineIndex, line] of lines.entries()) {
       try {
@@ -1120,7 +1515,7 @@ async function readBridgeConfig(paths, issues) {
   return config;
 }
 function getRepoPath(root) {
-  return path2.basename(root) === DEFAULT_BRIDGE_DIRNAME ? path2.dirname(root) : root;
+  return path3.basename(root) === DEFAULT_BRIDGE_DIRNAME ? path3.dirname(root) : root;
 }
 function normalizeList(values) {
   return (values ?? []).map((value) => value.trim()).filter(Boolean);
@@ -1217,7 +1612,7 @@ function normalizeStatus(snapshot, accessOptions = {}) {
         done: snapshot.tasks.filter((task) => task.status === "done").length
       },
       sourceRoot: snapshot.repoPath,
-      sourceLabel: path2.basename(snapshot.repoPath) || snapshot.repoPath,
+      sourceLabel: path3.basename(snapshot.repoPath) || snapshot.repoPath,
       setup: snapshot.bridge.setup
     },
     tasks: snapshot.tasks.slice().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
@@ -1239,7 +1634,9 @@ function normalizeStatus(snapshot, accessOptions = {}) {
     },
     access,
     contextMarkdown: snapshot.contextMarkdown,
-    issues
+    issues,
+    protocolIssues: [],
+    toolCapabilities: []
   };
 }
 async function loadBridgeSnapshot(rootPath) {
@@ -1282,7 +1679,10 @@ async function loadBridgeSnapshot(rootPath) {
 }
 async function loadBridgeStatus(rootPath, accessOptions = {}) {
   const root = await normalizeBridgeRoot(rootPath);
-  const status = normalizeStatus(await loadBridgeSnapshot(root), accessOptions);
+  const snapshot = await loadBridgeSnapshot(root);
+  const status = normalizeStatus(snapshot, accessOptions);
+  status.protocolIssues = await listProtocolIssuesInternal(root, snapshot);
+  status.toolCapabilities = await listAgentToolCapabilities();
   status.capture = await readCaptureStatus(root);
   return status;
 }
@@ -1295,38 +1695,38 @@ function assertAgentExists(bridge, agentId) {
   }
 }
 async function writeJsonAtomic2(targetPath, value) {
-  await ensureDir2(path2.dirname(targetPath));
-  const tempPath = `${targetPath}.${process.pid}.${randomUUID2()}.tmp`;
+  await ensureDir2(path3.dirname(targetPath));
+  const tempPath = `${targetPath}.${process.pid}.${randomUUID3()}.tmp`;
   try {
-    await fs2.writeFile(tempPath, `${JSON.stringify(value, null, 2)}
+    await fs3.writeFile(tempPath, `${JSON.stringify(value, null, 2)}
 `, "utf8");
-    await fs2.rename(tempPath, targetPath);
+    await fs3.rename(tempPath, targetPath);
   } catch (error2) {
-    await fs2.rm(tempPath, { force: true }).catch(() => void 0);
+    await fs3.rm(tempPath, { force: true }).catch(() => void 0);
     throw error2;
   }
 }
 async function writeTextAtomic(targetPath, value) {
-  await ensureDir2(path2.dirname(targetPath));
-  const existingValue = await fs2.readFile(targetPath, "utf8").catch(() => null);
+  await ensureDir2(path3.dirname(targetPath));
+  const existingValue = await fs3.readFile(targetPath, "utf8").catch(() => null);
   if (existingValue === value) {
     return;
   }
-  const tempPath = `${targetPath}.${process.pid}.${randomUUID2()}.tmp`;
+  const tempPath = `${targetPath}.${process.pid}.${randomUUID3()}.tmp`;
   try {
-    await fs2.writeFile(tempPath, value, "utf8");
+    await fs3.writeFile(tempPath, value, "utf8");
     try {
-      await fs2.rename(tempPath, targetPath);
+      await fs3.rename(tempPath, targetPath);
     } catch (error2) {
       const code = error2 && typeof error2 === "object" && "code" in error2 ? String(error2.code) : "";
       if (code !== "EPERM" && code !== "EEXIST") {
         throw error2;
       }
-      await fs2.rm(targetPath, { force: true }).catch(() => void 0);
-      await fs2.rename(tempPath, targetPath);
+      await fs3.rm(targetPath, { force: true }).catch(() => void 0);
+      await fs3.rename(tempPath, targetPath);
     }
   } catch (error2) {
-    await fs2.rm(tempPath, { force: true }).catch(() => void 0);
+    await fs3.rm(tempPath, { force: true }).catch(() => void 0);
     throw error2;
   }
 }
@@ -1334,12 +1734,12 @@ async function appendLog(rootPath, log) {
   const paths = getBridgePaths(rootPath);
   await ensureDir2(paths.logsDir);
   const filename = `${log.timestamp.slice(0, 10)}.jsonl`;
-  await fs2.appendFile(path2.join(paths.logsDir, filename), `${JSON.stringify(log)}
+  await fs3.appendFile(path3.join(paths.logsDir, filename), `${JSON.stringify(log)}
 `, "utf8");
 }
 async function createMutationLog(rootPath, agentId, action, description, metadata) {
   const log = logEntrySchema.parse({
-    id: `log-${randomUUID2()}`,
+    id: `log-${randomUUID3()}`,
     agentId,
     action,
     description,
@@ -1357,7 +1757,7 @@ async function addStructuredLog(rootPath, payload, options = {}) {
       assertAgentExists(snapshot.bridge, payload.agentId);
     }
     const log = logEntrySchema.parse({
-      id: `log-${randomUUID2()}`,
+      id: `log-${randomUUID3()}`,
       agentId: resolvedAgentId ?? payload.agentId,
       action: payload.action.trim(),
       description: payload.description.trim(),
@@ -1382,21 +1782,21 @@ async function regenerateContext(rootPath, budget) {
 }
 async function ensureBridge(rootPath) {
   const root = await normalizeBridgeRoot(rootPath);
-  const bridgeFile = path2.join(root, "bridge.json");
+  const bridgeFile = path3.join(root, "bridge.json");
   if (!await fileExists2(bridgeFile)) {
     throw new BridgeRuntimeError("NOT_INITIALIZED", `No .aibridge directory found at ${root}.`, { rootPath: root });
   }
   return root;
 }
 async function resolveJsonFileById(dirPath, idOrPrefix) {
-  const entries = (await fs2.readdir(dirPath)).filter((name) => name.endsWith(".json")).sort((left, right) => left.localeCompare(right));
+  const entries = (await fs3.readdir(dirPath)).filter((name) => name.endsWith(".json")).sort((left, right) => left.localeCompare(right));
   const exact = entries.find((entry) => entry === `${idOrPrefix}.json`);
   if (exact) {
-    return path2.join(dirPath, exact);
+    return path3.join(dirPath, exact);
   }
   const matches = entries.filter((entry) => entry.startsWith(idOrPrefix));
   if (matches.length === 1) {
-    return path2.join(dirPath, matches[0]);
+    return path3.join(dirPath, matches[0]);
   }
   if (matches.length > 1) {
     throw new BridgeRuntimeError("VALIDATION_ERROR", `ID prefix "${idOrPrefix}" is ambiguous.`);
@@ -1468,7 +1868,7 @@ async function addTask(rootPath, payload) {
     const snapshot = await loadBridgeSnapshot(lockedRoot);
     assertAgentExists(snapshot.bridge, payload.agentId);
     const task = taskSchema.parse({
-      id: `task-${randomUUID2()}`,
+      id: `task-${randomUUID3()}`,
       title: payload.title?.trim(),
       status: payload.status ?? "pending",
       priority: payload.priority ?? "medium",
@@ -1476,7 +1876,7 @@ async function addTask(rootPath, payload) {
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
-    await writeJsonAtomic2(path2.join(paths.tasksDir, `${task.id}.json`), task);
+    await writeJsonAtomic2(path3.join(paths.tasksDir, `${task.id}.json`), task);
     if (task.agentId) {
       await createMutationLog(lockedRoot, task.agentId, "create", `Created task: ${task.title}`, { taskId: task.id });
     }
@@ -1538,7 +1938,7 @@ async function addMessage(rootPath, payload) {
     assertAgentExists(snapshot.bridge, payload.fromAgentId);
     assertAgentExists(snapshot.bridge, payload.toAgentId);
     const message = messageSchema.parse({
-      id: `message-${randomUUID2()}`,
+      id: `message-${randomUUID3()}`,
       fromAgentId: payload.fromAgentId,
       toAgentId: payload.toAgentId,
       severity: payload.severity ?? "info",
@@ -1546,7 +1946,7 @@ async function addMessage(rootPath, payload) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       acknowledged: false
     });
-    await writeJsonAtomic2(path2.join(paths.messagesDir, `${message.id}.json`), message);
+    await writeJsonAtomic2(path3.join(paths.messagesDir, `${message.id}.json`), message);
     await createMutationLog(lockedRoot, message.fromAgentId, "message", `Sent message: ${message.content}`, {
       messageId: message.id,
       toAgentId: message.toAgentId ?? "all"
@@ -1595,14 +1995,14 @@ async function createHandoff(rootPath, payload) {
       }
     }
     const handoff = handoffSchema.parse({
-      id: `handoff-${randomUUID2()}`,
+      id: `handoff-${randomUUID3()}`,
       fromAgentId: payload.fromAgentId,
       toAgentId: payload.toAgentId,
       description: payload.description.trim(),
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       relatedTaskIds: payload.relatedTaskIds?.length ? payload.relatedTaskIds : void 0
     });
-    await writeJsonAtomic2(path2.join(paths.handoffsDir, `${handoff.id}.json`), handoff);
+    await writeJsonAtomic2(path3.join(paths.handoffsDir, `${handoff.id}.json`), handoff);
     await createMutationLog(lockedRoot, handoff.fromAgentId, "handoff", `Created handoff to ${handoff.toAgentId}`, {
       handoffId: handoff.id
     });
@@ -1649,7 +2049,14 @@ async function readAgentSession(rootPath, idOrPrefix) {
 }
 async function writeAgentSession(rootPath, session) {
   const paths = getBridgePaths(rootPath);
-  await writeJsonAtomic2(path2.join(paths.sessionsDir, `${session.id}.json`), session);
+  await writeJsonAtomic2(path3.join(paths.sessionsDir, `${session.id}.json`), session);
+}
+function sessionPromptArtifactPath(rootPath, sessionId, kind) {
+  const paths = getBridgePaths(rootPath);
+  return path3.join(paths.promptsDir, `${kind}-${sessionId}.md`);
+}
+async function writeSessionPromptArtifact(rootPath, sessionId, kind, prompt) {
+  await writeGeneratedFile(sessionPromptArtifactPath(rootPath, sessionId, kind), prompt);
 }
 async function listAgentSessions(rootPath, filters = {}) {
   const root = await ensureBridge(rootPath);
@@ -1677,7 +2084,7 @@ async function launchAgentSession(rootPath, payload) {
       throw new BridgeRuntimeError("NOT_FOUND", `Agent ${payload.agentId} is not configured for this bridge.`);
     }
     const launchedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const sessionId = `session-${randomUUID2()}`;
+    const sessionId = `session-${randomUUID3()}`;
     const instructions = buildLaunchInstructionSet(
       snapshot,
       agent,
@@ -1705,6 +2112,7 @@ async function launchAgentSession(rootPath, payload) {
       }
     });
     await writeAgentSession(lockedRoot, session);
+    await writeSessionPromptArtifact(lockedRoot, session.id, "launch", session.instructions.prompt);
     await createMutationLog(lockedRoot, agent.id, "launch", `Created ${session.toolKind} launch prompt`, {
       sessionId: session.id,
       toolKind: session.toolKind,
@@ -1815,7 +2223,174 @@ async function getAgentSessionRecovery(rootPath, idOrPrefix) {
   if (!session) {
     throw new BridgeRuntimeError("NOT_FOUND", `Unknown agent session: ${idOrPrefix}`);
   }
-  return deriveAgentSession(snapshot, session);
+  const derived = deriveAgentSession(snapshot, session);
+  if (derived.recovery?.prompt) {
+    await writeSessionPromptArtifact(root, derived.id, "recover", derived.recovery.prompt);
+  }
+  return derived;
+}
+async function getAgentToolCapabilities(rootPath) {
+  await ensureBridge(rootPath);
+  return listAgentToolCapabilities();
+}
+async function listProtocolIssues(rootPath) {
+  const root = await ensureBridge(rootPath);
+  const snapshot = await loadBridgeSnapshot(root);
+  return listProtocolIssuesInternal(root, snapshot);
+}
+async function findProtocolIssue(rootPath, issueId) {
+  const issues = await listProtocolIssues(rootPath);
+  const issue = issues.find((item) => item.id === issueId);
+  if (!issue) {
+    throw new BridgeRuntimeError("NOT_FOUND", `Unknown protocol issue: ${issueId}`);
+  }
+  return issue;
+}
+async function buildProtocolIssueRepairPrompt(rootPath, issueId) {
+  const issue = await findProtocolIssue(rootPath, issueId);
+  if (issue.type === "invalid_entity") {
+    return [
+      "AiBridge detected a non-canonical or invalid protocol file.",
+      "",
+      `Issue: ${issue.detail}`,
+      "Do not hand-edit `.aibridge/*.json` files.",
+      'Use the canonical runtime path: npm exec --package=@zerwonenetwork/aibridge-core -c "aibridge <command>"',
+      "",
+      "Repair workflow:",
+      issue.filePath ? `- Remove or repair the invalid file at ${issue.filePath}.` : "- Remove the invalid file.",
+      "- Recreate the intended task, message, handoff, decision, or session state through the AiBridge CLI only.",
+      "- Regenerate context after the corrected state is recorded."
+    ].join("\n");
+  }
+  if (issue.sessionId) {
+    const session = await getAgentSessionRecovery(rootPath, issue.sessionId);
+    return session.recovery?.prompt ?? issue.detail;
+  }
+  return issue.detail;
+}
+async function cleanupProtocolIssue(rootPath, issueId) {
+  const root = await ensureBridge(rootPath);
+  const issue = await findProtocolIssue(root, issueId);
+  if (issue.type !== "invalid_entity" || !issue.filePath) {
+    throw new BridgeRuntimeError("BAD_REQUEST", `Protocol issue ${issueId} does not support cleanup.`);
+  }
+  return withBridgeWriteLock(root, async (lockedRoot) => {
+    const absolutePath = path3.join(getRepoPath(lockedRoot), issue.filePath);
+    await fs3.rm(absolutePath, { force: true });
+    await regenerateContextUnlocked(lockedRoot);
+    return {
+      removedPath: issue.filePath,
+      issueId: issue.id
+    };
+  });
+}
+async function dispatchAgentSessionLaunch(rootPath, idOrPrefix) {
+  return updateAgentSessionState(rootPath, idOrPrefix, async (session) => {
+    const result = await dispatchLaunchOrRecovery(
+      session.toolKind,
+      session.repoPath,
+      session.instructions.prompt,
+      session.instructions.filesToAttach ?? []
+    );
+    await createMutationLog(
+      await ensureBridge(rootPath),
+      session.agentId,
+      "dispatch",
+      result.dispatchStatus === "launched" ? `Dispatched ${session.toolKind} launch` : `Unable to dispatch ${session.toolKind} launch`,
+      {
+        sessionId: session.id,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      }
+    );
+    return {
+      ...session,
+      instructions: {
+        ...session.instructions,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      }
+    };
+  });
+}
+async function dispatchAgentSessionRecovery(rootPath, idOrPrefix) {
+  return updateAgentSessionState(rootPath, idOrPrefix, async (session, snapshot) => {
+    const derived = deriveAgentSession(snapshot, session);
+    const prompt = derived.recovery?.prompt;
+    if (!prompt) {
+      throw new BridgeRuntimeError("BAD_REQUEST", `Session ${session.id} does not have a recovery prompt.`);
+    }
+    const result = await dispatchLaunchOrRecovery(
+      session.toolKind,
+      session.repoPath,
+      prompt,
+      derived.recovery?.filesToAttach ?? []
+    );
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    await writeSessionPromptArtifact(rootPath, session.id, "recover", prompt);
+    await createMutationLog(
+      await ensureBridge(rootPath),
+      session.agentId,
+      "recover",
+      result.dispatchStatus === "launched" ? `Dispatched recovery prompt for ${session.toolKind}` : `Recovery dispatch needs manual action`,
+      {
+        sessionId: session.id,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      }
+    );
+    return {
+      ...session,
+      status: session.toolKind === "codex" && result.dispatchStatus === "launched" ? "active" : session.status,
+      acknowledgedAt: session.toolKind === "codex" && result.dispatchStatus === "launched" ? timestamp : session.acknowledgedAt,
+      acknowledgedContextTimestamp: session.toolKind === "codex" && result.dispatchStatus === "launched" ? snapshot.lastSyncAt : session.acknowledgedContextTimestamp,
+      lastHeartbeatAt: session.toolKind === "codex" && result.dispatchStatus === "launched" ? timestamp : session.lastHeartbeatAt,
+      lastActivityAt: session.toolKind === "codex" && result.dispatchStatus === "launched" ? timestamp : session.lastActivityAt,
+      recovery: {
+        ...derived.recovery,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      }
+    };
+  });
+}
+async function runAgentSessionNonChat(rootPath, idOrPrefix) {
+  return updateAgentSessionState(rootPath, idOrPrefix, async (session, snapshot) => {
+    if (session.toolKind !== "codex") {
+      throw new BridgeRuntimeError("BAD_REQUEST", `Non-chat execution is only supported for Codex sessions.`);
+    }
+    const result = await runCodexNonChat(session.repoPath, session.instructions.prompt);
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    await createMutationLog(
+      await ensureBridge(rootPath),
+      session.agentId,
+      "dispatch",
+      result.dispatchStatus === "launched" ? `Started Codex non-chat execution for ${session.id}` : `Codex non-chat execution failed to launch`,
+      {
+        sessionId: session.id,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      }
+    );
+    return {
+      ...session,
+      status: result.dispatchStatus === "launched" ? "active" : session.status,
+      acknowledgedAt: result.dispatchStatus === "launched" ? timestamp : session.acknowledgedAt,
+      acknowledgedContextTimestamp: result.dispatchStatus === "launched" ? snapshot.lastSyncAt : session.acknowledgedContextTimestamp,
+      lastHeartbeatAt: result.dispatchStatus === "launched" ? timestamp : session.lastHeartbeatAt,
+      lastActivityAt: result.dispatchStatus === "launched" ? timestamp : session.lastActivityAt,
+      instructions: {
+        ...session.instructions,
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      },
+      recovery: {
+        ...session.recovery ?? { recommended: false },
+        dispatchStatus: result.dispatchStatus,
+        dispatchNote: result.dispatchNote
+      }
+    };
+  });
 }
 async function listDecisions(rootPath, filters = {}) {
   const root = await ensureBridge(rootPath);
@@ -1834,13 +2409,13 @@ async function addDecision(rootPath, payload) {
     const snapshot = await loadBridgeSnapshot(lockedRoot);
     assertAgentExists(snapshot.bridge, payload.agentId);
     const decision = decisionSchema.parse({
-      id: `decision-${randomUUID2()}`,
+      id: `decision-${randomUUID3()}`,
       title: payload.title.trim(),
       summary: payload.summary.trim(),
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       status: payload.status ?? "proposed"
     });
-    await writeJsonAtomic2(path2.join(paths.decisionsDir, `${decision.id}.json`), decision);
+    await writeJsonAtomic2(path3.join(paths.decisionsDir, `${decision.id}.json`), decision);
     if (payload.agentId) {
       await createMutationLog(lockedRoot, payload.agentId, "decision", `Recorded decision: ${decision.title}`, {
         decisionId: decision.id,
@@ -1897,7 +2472,7 @@ async function addRelease(rootPath, payload) {
     const createdAt = (/* @__PURE__ */ new Date()).toISOString();
     const status = payload.status ?? "draft";
     const release = releaseSchema.parse({
-      id: `release-${randomUUID2()}`,
+      id: `release-${randomUUID3()}`,
       version: payload.version.trim(),
       title: payload.title.trim(),
       summary: payload.summary.trim(),
@@ -1911,7 +2486,7 @@ async function addRelease(rootPath, payload) {
       createdAt,
       updatedAt: createdAt
     });
-    await writeJsonAtomic2(path2.join(paths.releasesDir, `${release.id}.json`), release);
+    await writeJsonAtomic2(path3.join(paths.releasesDir, `${release.id}.json`), release);
     if (release.createdBy) {
       await createMutationLog(
         lockedRoot,
@@ -1982,7 +2557,7 @@ async function addAnnouncement(rootPath, payload) {
     const createdAt = (/* @__PURE__ */ new Date()).toISOString();
     const status = payload.status ?? "draft";
     const announcement = announcementSchema.parse({
-      id: `announcement-${randomUUID2()}`,
+      id: `announcement-${randomUUID3()}`,
       title: payload.title.trim(),
       body: payload.body.trim(),
       status,
@@ -1994,7 +2569,7 @@ async function addAnnouncement(rootPath, payload) {
       createdAt,
       updatedAt: createdAt
     });
-    await writeJsonAtomic2(path2.join(paths.announcementsDir, `${announcement.id}.json`), announcement);
+    await writeJsonAtomic2(path3.join(paths.announcementsDir, `${announcement.id}.json`), announcement);
     if (announcement.createdBy) {
       await createMutationLog(
         lockedRoot,
@@ -2054,14 +2629,14 @@ async function addConvention(rootPath, payload) {
     const snapshot = await loadBridgeSnapshot(lockedRoot);
     assertAgentExists(snapshot.bridge, payload.addedBy);
     const convention = conventionSchema.parse({
-      id: `convention-${randomUUID2()}`,
+      id: `convention-${randomUUID3()}`,
       rule: payload.rule.trim(),
       addedAt: (/* @__PURE__ */ new Date()).toISOString(),
       addedBy: payload.addedBy,
       category: payload.category
     });
     await ensureDir2(paths.conventionsDir);
-    await writeJsonAtomic2(path2.join(paths.conventionsDir, `${convention.id}.json`), convention);
+    await writeJsonAtomic2(path3.join(paths.conventionsDir, `${convention.id}.json`), convention);
     const updatedConventions = [...snapshot.conventions, convention];
     await writeTextAtomic(paths.conventionsFile, conventionsToMarkdownDocument(updatedConventions));
     if (payload.addedBy) {
@@ -2083,13 +2658,13 @@ async function setConventions(rootPath, payload) {
       assertAgentExists(snapshot.bridge, item.addedBy);
     }
     await ensureDir2(paths.conventionsDir);
-    const existing = await fs2.readdir(paths.conventionsDir).catch(() => []);
+    const existing = await fs3.readdir(paths.conventionsDir).catch(() => []);
     await Promise.all(
-      existing.filter((name) => name.endsWith(".json")).map((name) => fs2.rm(path2.join(paths.conventionsDir, name), { force: true }))
+      existing.filter((name) => name.endsWith(".json")).map((name) => fs3.rm(path3.join(paths.conventionsDir, name), { force: true }))
     );
     const conventions = payload.map(
       (item, index) => conventionSchema.parse({
-        id: item.id ?? `convention-${randomUUID2()}`,
+        id: item.id ?? `convention-${randomUUID3()}`,
         rule: item.rule.trim(),
         addedAt: item.addedAt ?? new Date(Date.now() + index).toISOString(),
         addedBy: item.addedBy,
@@ -2098,7 +2673,7 @@ async function setConventions(rootPath, payload) {
     );
     await Promise.all(
       conventions.map(
-        (convention) => writeJsonAtomic2(path2.join(paths.conventionsDir, `${convention.id}.json`), convention)
+        (convention) => writeJsonAtomic2(path3.join(paths.conventionsDir, `${convention.id}.json`), convention)
       )
     );
     await writeTextAtomic(paths.conventionsFile, conventionsToMarkdownDocument(conventions));
@@ -2130,6 +2705,7 @@ async function createMissingStructure(paths) {
     ensureDir2(paths.root),
     ensureDir2(paths.captureDir),
     ensureDir2(paths.agentsDir),
+    ensureDir2(paths.promptsDir),
     ensureDir2(paths.tasksDir),
     ensureDir2(paths.logsDir),
     ensureDir2(paths.handoffsDir),
@@ -2142,7 +2718,7 @@ async function createMissingStructure(paths) {
   ]);
 }
 async function writeGeneratedFile(targetPath, value) {
-  await ensureDir2(path2.dirname(targetPath));
+  await ensureDir2(path3.dirname(targetPath));
   await writeTextAtomic(targetPath, `${value.trimEnd()}
 `);
 }
@@ -2159,15 +2735,15 @@ function cursorRuleMarkdown(template) {
 async function syncInstructionArtifactsUnlocked(rootPath) {
   const snapshot = await loadBridgeSnapshot(rootPath);
   const paths = getBridgePaths(rootPath);
-  const cursorTemplate = await readTextIfExists(path2.resolve(PROTOCOL_TEMPLATES_ROOT, "cursor.md"));
-  const codexTemplate = await readTextIfExists(path2.resolve(PROTOCOL_TEMPLATES_ROOT, "codex.md"));
+  const cursorTemplate = await readTextIfExists(path3.resolve(PROTOCOL_TEMPLATES_ROOT, "cursor.md"));
+  const codexTemplate = await readTextIfExists(path3.resolve(PROTOCOL_TEMPLATES_ROOT, "codex.md"));
   const generatedNotice = "<!-- Generated by AiBridge. Regenerated from the local runtime. -->";
   await writeGeneratedFile(
-    path2.join(paths.repoRoot, ".cursorrules"),
+    path3.join(paths.repoRoot, ".cursorrules"),
     [generatedNotice, "", cursorTemplate || "# AiBridge Cursor Protocol"].join("\n")
   );
   await writeGeneratedFile(
-    path2.join(paths.repoRoot, ".cursor", "rules", "aibridge.mdc"),
+    path3.join(paths.repoRoot, ".cursor", "rules", "aibridge.mdc"),
     [generatedNotice, "", cursorRuleMarkdown(cursorTemplate || "# AiBridge Cursor Protocol")].join("\n")
   );
   const antigravitySection = snapshot.bridge.agents.some((agent) => agent.kind === "antigravity") ? [
@@ -2178,17 +2754,17 @@ async function syncInstructionArtifactsUnlocked(rootPath) {
     "- Treat `AGENTS.md` as supportive context and the AiBridge launch prompt as primary."
   ].join("\n") : "";
   await writeGeneratedFile(
-    path2.join(paths.repoRoot, "AGENTS.md"),
+    path3.join(paths.repoRoot, "AGENTS.md"),
     [generatedNotice, "", codexTemplate || "# AiBridge Agent Protocol", antigravitySection].join("\n")
   );
 }
 async function createAgentTemplate(kind, destinationPath) {
-  const templatePath = path2.resolve(PROTOCOL_TEMPLATES_ROOT, `${kind}.md`);
+  const templatePath = path3.resolve(PROTOCOL_TEMPLATES_ROOT, `${kind}.md`);
   if (await fileExists2(destinationPath)) {
     return false;
   }
   const template = await readTextIfExists(templatePath);
-  await fs2.writeFile(destinationPath, template || `# ${AGENT_LABELS[kind]}
+  await fs3.writeFile(destinationPath, template || `# ${AGENT_LABELS[kind]}
 `, "utf8");
   return true;
 }
@@ -2229,7 +2805,7 @@ async function addAgent(rootPath, agentKind) {
       agents: [...bridge.agents, newAgent]
     });
     await writeJsonAtomic2(paths.bridgeFile, updatedBridge);
-    const agentPath = path2.join(paths.agentsDir, `${kind}.md`);
+    const agentPath = path3.join(paths.agentsDir, `${kind}.md`);
     await ensureDir2(paths.agentsDir);
     await createAgentTemplate(kind, agentPath);
     await syncInstructionArtifactsUnlocked(lockedRoot);
@@ -2238,7 +2814,7 @@ async function addAgent(rootPath, agentKind) {
 }
 async function initBridge(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const root = path2.resolve(cwd, DEFAULT_BRIDGE_DIRNAME);
+  const root = path3.resolve(cwd, DEFAULT_BRIDGE_DIRNAME);
   await ensureDir2(root);
   return withBridgeWriteLock(root, async (lockedRoot) => {
     const paths = getBridgePaths(lockedRoot);
@@ -2249,7 +2825,7 @@ async function initBridge(options = {}) {
     if (!alreadyInitialized) {
       const bridge2 = bridgeSchema.parse({
         schemaVersion: "1.0",
-        projectName: options.name?.trim() || path2.basename(cwd),
+        projectName: options.name?.trim() || path3.basename(cwd),
         createdAt: (/* @__PURE__ */ new Date()).toISOString(),
         agents: uniqueAgentKinds(options.agents ?? ["cursor"]).map(buildAgent),
         setup: normalizedSetup
@@ -2258,7 +2834,7 @@ async function initBridge(options = {}) {
       createdFiles.push(paths.bridgeFile);
     }
     if (!await fileExists2(paths.conventionsFile)) {
-      await fs2.writeFile(
+      await fs3.writeFile(
         paths.conventionsFile,
         "# Project Conventions\n\n> Shared rules all agents must follow. Managed via `aibridge convention add`.\n",
         "utf8"
@@ -2277,7 +2853,7 @@ async function initBridge(options = {}) {
       bridge = updatedBridge;
     }
     for (const agent of bridge.agents) {
-      const destinationPath = path2.join(paths.agentsDir, `${agent.kind}.md`);
+      const destinationPath = path3.join(paths.agentsDir, `${agent.kind}.md`);
       if (await createAgentTemplate(agent.kind, destinationPath)) {
         createdFiles.push(destinationPath);
       }
@@ -2355,22 +2931,22 @@ function parseConventionCategory(value) {
 
 // aibridge/services/local/service.ts
 import { createServer } from "http";
-import { promises as fs5 } from "fs";
-import path5 from "path";
+import { promises as fs6 } from "fs";
+import path6 from "path";
 
 // aibridge/services/capture/capture.ts
-import { randomUUID as randomUUID3 } from "crypto";
+import { randomUUID as randomUUID4 } from "crypto";
 import { execFile } from "child_process";
-import { promises as fs3 } from "fs";
-import path3 from "path";
+import { promises as fs4 } from "fs";
+import path4 from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 import { promisify } from "util";
 var execFileAsync = promisify(execFile);
-var CURRENT_DIR = path3.dirname(fileURLToPath2(import.meta.url));
-var TOOL_ROOT = path3.basename(CURRENT_DIR) === "dist-cli" ? path3.resolve(CURRENT_DIR, "..") : path3.resolve(CURRENT_DIR, "../../..");
-var CLI_ENTRY = path3.join(TOOL_ROOT, "aibridge", "cli", "bin", "aibridge.ts");
-var TSX_CLI = path3.join(TOOL_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
-var IS_PUBLISHED_BUNDLE = path3.basename(CURRENT_DIR) === "dist-cli";
+var CURRENT_DIR = path4.dirname(fileURLToPath2(import.meta.url));
+var TOOL_ROOT = path4.basename(CURRENT_DIR) === "dist-cli" ? path4.resolve(CURRENT_DIR, "..") : path4.resolve(CURRENT_DIR, "../../..");
+var CLI_ENTRY = path4.join(TOOL_ROOT, "aibridge", "cli", "bin", "aibridge.ts");
+var TSX_CLI = path4.join(TOOL_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
+var IS_PUBLISHED_BUNDLE = path4.basename(CURRENT_DIR) === "dist-cli";
 var HOOK_MARKER = "# aibridge capture hook";
 var DEFAULT_HOOKS = ["post-commit", "post-merge", "post-checkout"];
 var DEFAULT_WATCH_DEBOUNCE_MS = 1500;
@@ -2387,7 +2963,7 @@ var IGNORED_PREFIXES = [
   ".next/"
 ];
 function repoRootFromBridgeRoot(bridgeRoot2) {
-  return path3.basename(bridgeRoot2) === ".aibridge" ? path3.dirname(bridgeRoot2) : bridgeRoot2;
+  return path4.basename(bridgeRoot2) === ".aibridge" ? path4.dirname(bridgeRoot2) : bridgeRoot2;
 }
 function normalizePathForPattern(value) {
   return value.replace(/\\/g, "/").toLowerCase();
@@ -2421,24 +2997,24 @@ function isIgnoredPath(relativePath) {
   return normalized.endsWith(".log");
 }
 async function resolveGitDir(repoRoot) {
-  const gitPath = path3.join(repoRoot, ".git");
-  const stats = await fs3.stat(gitPath).catch(() => null);
+  const gitPath = path4.join(repoRoot, ".git");
+  const stats = await fs4.stat(gitPath).catch(() => null);
   if (!stats) {
     throw new BridgeRuntimeError("NOT_FOUND", `No .git directory found at ${repoRoot}.`);
   }
   if (stats.isDirectory()) {
     return gitPath;
   }
-  const raw = await fs3.readFile(gitPath, "utf8");
+  const raw = await fs4.readFile(gitPath, "utf8");
   const match = raw.match(/^gitdir:\s*(.+)$/im);
   if (!match?.[1]) {
     throw new BridgeRuntimeError("INVALID_STATE", `Unsupported .git file format at ${gitPath}.`);
   }
-  return path3.resolve(repoRoot, match[1].trim());
+  return path4.resolve(repoRoot, match[1].trim());
 }
 async function pathExists(targetPath) {
   try {
-    await fs3.access(targetPath);
+    await fs4.access(targetPath);
     return true;
   } catch {
     return false;
@@ -2478,22 +3054,22 @@ async function sleep2(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function installManagedHook(hooksDir, repoRoot, hookName) {
-  const hookPath = path3.join(hooksDir, hookName);
+  const hookPath = path4.join(hooksDir, hookName);
   const backupPath = `${hookPath}.aibridge.backup`;
   const nextScript = buildHookScript(repoRoot, hookName);
   let state = "installed";
   if (await pathExists(hookPath)) {
-    const current = await fs3.readFile(hookPath, "utf8");
+    const current = await fs4.readFile(hookPath, "utf8");
     if (current === nextScript) {
       return null;
     }
     if (!current.includes(HOOK_MARKER) && current.trim().length > 0 && !await pathExists(backupPath)) {
-      await fs3.rename(hookPath, backupPath);
+      await fs4.rename(hookPath, backupPath);
     }
     state = "updated";
   }
-  await fs3.writeFile(hookPath, nextScript, { mode: 493, encoding: "utf8" });
-  await fs3.chmod(hookPath, 493).catch(() => void 0);
+  await fs4.writeFile(hookPath, nextScript, { mode: 493, encoding: "utf8" });
+  await fs4.chmod(hookPath, 493).catch(() => void 0);
   return state;
 }
 async function execGit(repoRoot, args) {
@@ -2574,7 +3150,7 @@ function detectAttribution(options) {
 async function recordCaptureWarning(bridgeRoot2, kind, message, payload) {
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
   await appendCaptureValidationWarning(bridgeRoot2, {
-    id: `capture-warning-${randomUUID3()}`,
+    id: `capture-warning-${randomUUID4()}`,
     timestamp,
     kind,
     message,
@@ -2629,10 +3205,10 @@ async function ingestCaptureEvent(bridgeRoot2, input, agents) {
 async function collectWorkspaceSnapshot(repoRoot) {
   const files = /* @__PURE__ */ new Map();
   async function walk(currentPath) {
-    const entries = await fs3.readdir(currentPath, { withFileTypes: true });
+    const entries = await fs4.readdir(currentPath, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = path3.join(currentPath, entry.name);
-      const relativePath = path3.relative(repoRoot, fullPath);
+      const fullPath = path4.join(currentPath, entry.name);
+      const relativePath = path4.relative(repoRoot, fullPath);
       if (isIgnoredPath(relativePath)) {
         continue;
       }
@@ -2643,7 +3219,7 @@ async function collectWorkspaceSnapshot(repoRoot) {
       if (!entry.isFile()) {
         continue;
       }
-      const stats = await fs3.stat(fullPath);
+      const stats = await fs4.stat(fullPath);
       files.set(relativePath, {
         mtimeMs: stats.mtimeMs,
         size: stats.size
@@ -2680,8 +3256,8 @@ async function installCaptureHooks(options = {}) {
   await loadBridgeSnapshot(bridgeRoot2);
   const repoRoot = repoRootFromBridgeRoot(bridgeRoot2);
   const gitDir = await resolveGitDir(repoRoot);
-  const hooksDir = path3.join(gitDir, "hooks");
-  await fs3.mkdir(hooksDir, { recursive: true });
+  const hooksDir = path4.join(gitDir, "hooks");
+  await fs4.mkdir(hooksDir, { recursive: true });
   const installed = [];
   const updated = [];
   for (const hookName of DEFAULT_HOOKS) {
@@ -2769,7 +3345,7 @@ async function runCaptureDoctor(options = {}) {
   let bridgeRoot2 = "";
   try {
     bridgeRoot2 = await resolveBridgeRoot({ cwd });
-    await fs3.access(path3.join(bridgeRoot2, "bridge.json"));
+    await fs4.access(path4.join(bridgeRoot2, "bridge.json"));
     checks.push({ name: "bridge", ok: true, details: `Bridge found at ${bridgeRoot2}` });
   } catch (error2) {
     checks.push({ name: "bridge", ok: false, details: error2.message });
@@ -2778,11 +3354,11 @@ async function runCaptureDoctor(options = {}) {
     try {
       const repoRoot = repoRootFromBridgeRoot(bridgeRoot2);
       const gitDir = await resolveGitDir(repoRoot);
-      const hooksDir = path3.join(gitDir, "hooks");
+      const hooksDir = path4.join(gitDir, "hooks");
       checks.push({ name: "git", ok: true, details: `Git hooks directory: ${hooksDir}` });
       for (const hookName of DEFAULT_HOOKS) {
-        const hookPath = path3.join(hooksDir, hookName);
-        const installed = await pathExists(hookPath) ? (await fs3.readFile(hookPath, "utf8")).includes(HOOK_MARKER) : false;
+        const hookPath = path4.join(hooksDir, hookName);
+        const installed = await pathExists(hookPath) ? (await fs4.readFile(hookPath, "utf8")).includes(HOOK_MARKER) : false;
         checks.push({
           name: `hook:${hookName}`,
           ok: installed,
@@ -3569,8 +4145,8 @@ function buildSetupResult(questionnaire) {
 }
 
 // aibridge/setup/local.ts
-import path4 from "path";
-import { promises as fs4 } from "fs";
+import path5 from "path";
+import { promises as fs5 } from "fs";
 function resolveLeadAgentId(agentKinds2) {
   return agentKinds2[0] ?? "cursor";
 }
@@ -3578,7 +4154,7 @@ async function initializeLocalBridgeFromSetup(questionnaire, options = {}) {
   const result = createSetupResult(questionnaire);
   const cwd = options.cwd ?? process.cwd();
   if (options.clearExistingData) {
-    await fs4.rm(path4.join(cwd, ".aibridge"), { recursive: true, force: true });
+    await fs5.rm(path5.join(cwd, ".aibridge"), { recursive: true, force: true });
   }
   const initResult = await initBridge({
     cwd,
@@ -3702,10 +4278,10 @@ function parseUrl(request) {
   return new URL(request.url ?? "/", "http://127.0.0.1");
 }
 function normalizeServiceCwd(cwd) {
-  return path5.resolve(cwd ?? process.cwd());
+  return path6.resolve(cwd ?? process.cwd());
 }
 function normalizeComparisonPath(targetPath) {
-  return path5.normalize(targetPath).toLowerCase();
+  return path6.normalize(targetPath).toLowerCase();
 }
 function serviceUrl(host, port) {
   return `http://${host}:${port}`;
@@ -3781,10 +4357,10 @@ async function resolveRuntime(options, source, customRoot) {
 }
 async function computeRevision(rootPath) {
   async function walk(directoryPath) {
-    const entries = await fs5.readdir(directoryPath, { withFileTypes: true });
+    const entries = await fs6.readdir(directoryPath, { withFileTypes: true });
     const files = [];
     for (const entry of entries) {
-      const fullPath = path5.join(directoryPath, entry.name);
+      const fullPath = path6.join(directoryPath, entry.name);
       if (entry.isDirectory()) {
         files.push(...await walk(fullPath));
         continue;
@@ -3792,7 +4368,7 @@ async function computeRevision(rootPath) {
       if (!entry.isFile() || entry.name.endsWith(".tmp")) {
         continue;
       }
-      const metadata = await fs5.stat(fullPath);
+      const metadata = await fs6.stat(fullPath);
       files.push({
         path: fullPath,
         mtimeMs: metadata.mtimeMs,
@@ -3914,9 +4490,19 @@ async function handleRequest(request, response, options) {
   }
   if (request.method === "GET" && url.pathname === "/bridge/capture/status") {
     const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
-    const capture = await getCaptureStatus({ cwd: path5.dirname(rootPath) });
+    const capture = await getCaptureStatus({ cwd: path6.dirname(rootPath) });
     sendJson(response, 200, {
       data: capture,
+      runtime,
+      revision: await computeRevision(rootPath)
+    });
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/bridge/agents/capabilities") {
+    const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
+    const capabilities = await getAgentToolCapabilities(rootPath);
+    sendJson(response, 200, {
+      data: capabilities,
       runtime,
       revision: await computeRevision(rootPath)
     });
@@ -3936,6 +4522,16 @@ async function handleRequest(request, response, options) {
     });
     return;
   }
+  if (request.method === "GET" && url.pathname === "/bridge/protocol/issues") {
+    const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
+    const issues = await listProtocolIssues(rootPath);
+    sendJson(response, 200, {
+      data: issues,
+      runtime,
+      revision: await computeRevision(rootPath)
+    });
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/bridge/agents/launch") {
     const body = await readJsonBody(request);
     const { rootPath, runtime } = await resolveRuntime(options, body.source, body.rootPath);
@@ -3948,7 +4544,7 @@ async function handleRequest(request, response, options) {
     sendJson(response, 201, withStatusEnvelope(session, status, runtime, await computeRevision(rootPath)));
     return;
   }
-  const sessionMutationMatch = url.pathname.match(/^\/bridge\/agents\/sessions\/([^/]+)\/(start|heartbeat|stop|recovery)$/);
+  const sessionMutationMatch = url.pathname.match(/^\/bridge\/agents\/sessions\/([^/]+)\/(start|heartbeat|stop|recovery|dispatch|non-chat)$/);
   if (sessionMutationMatch) {
     const [, sessionId, action] = sessionMutationMatch;
     const body = request.method === "POST" ? await readJsonBody(request) : {};
@@ -3966,10 +4562,45 @@ async function handleRequest(request, response, options) {
       data = await stopAgentSession(rootPath, sessionId, {
         reason: typeof body.reason === "string" ? body.reason : void 0
       });
+    } else if (request.method === "POST" && action === "dispatch") {
+      data = await dispatchAgentSessionLaunch(rootPath, sessionId);
+    } else if (request.method === "POST" && action === "non-chat") {
+      data = await runAgentSessionNonChat(rootPath, sessionId);
     } else if (request.method === "GET" && action === "recovery") {
       data = await getAgentSessionRecovery(rootPath, sessionId);
     } else {
       throw new BridgeRuntimeError("BAD_REQUEST", `Unsupported session action: ${action}`);
+    }
+    const status = await getStatusSummary(rootPath, resolveAccess(request, options));
+    sendJson(response, 200, withStatusEnvelope(data, status, runtime, await computeRevision(rootPath)));
+    return;
+  }
+  const recoveryDispatchMatch = url.pathname.match(/^\/bridge\/agents\/sessions\/([^/]+)\/recovery\/dispatch$/);
+  if (recoveryDispatchMatch) {
+    const [, sessionId] = recoveryDispatchMatch;
+    const body = await readJsonBody(request);
+    const { rootPath, runtime } = await resolveRuntime(options, body.source, body.rootPath);
+    const data = await dispatchAgentSessionRecovery(rootPath, sessionId);
+    const status = await getStatusSummary(rootPath, resolveAccess(request, options));
+    sendJson(response, 200, withStatusEnvelope(data, status, runtime, await computeRevision(rootPath)));
+    return;
+  }
+  const protocolIssueActionMatch = url.pathname.match(/^\/bridge\/protocol\/issues\/([^/]+)\/(repair-prompt|cleanup)$/);
+  if (protocolIssueActionMatch) {
+    const [, issueId, action] = protocolIssueActionMatch;
+    const body = request.method === "POST" ? await readJsonBody(request) : {};
+    const { rootPath, runtime } = await resolveRuntime(
+      options,
+      request.method === "GET" ? url.searchParams.get("source") : body.source,
+      request.method === "GET" ? url.searchParams.get("root") : body.rootPath
+    );
+    let data;
+    if (request.method === "GET" && action === "repair-prompt") {
+      data = { prompt: await buildProtocolIssueRepairPrompt(rootPath, issueId) };
+    } else if (request.method === "POST" && action === "cleanup") {
+      data = await cleanupProtocolIssue(rootPath, issueId);
+    } else {
+      throw new BridgeRuntimeError("BAD_REQUEST", `Unsupported protocol issue action: ${action}`);
     }
     const status = await getStatusSummary(rootPath, resolveAccess(request, options));
     sendJson(response, 200, withStatusEnvelope(data, status, runtime, await computeRevision(rootPath)));
@@ -4763,7 +5394,7 @@ function parseTemplateFlag(flags) {
   return flagString(flags, "template");
 }
 function defaultSetupProjectName() {
-  return path6.basename(process.cwd()) || "aibridge-project";
+  return path7.basename(process.cwd()) || "aibridge-project";
 }
 function resolveAgentFlag(flags) {
   return flagString(flags, "from") ?? flagString(flags, "agent") ?? process.env.AIBRIDGE_AGENT?.trim();
@@ -5064,12 +5695,12 @@ async function writeIfNeeded(outputPath, markdown) {
   if (!outputPath) {
     return;
   }
-  const resolved = path6.resolve(process.cwd(), outputPath);
-  await fs6.mkdir(path6.dirname(resolved), { recursive: true });
-  await fs6.writeFile(resolved, markdown, "utf8");
+  const resolved = path7.resolve(process.cwd(), outputPath);
+  await fs7.mkdir(path7.dirname(resolved), { recursive: true });
+  await fs7.writeFile(resolved, markdown, "utf8");
 }
 function bridgeRoot() {
-  return path6.resolve(process.cwd(), ".aibridge");
+  return path7.resolve(process.cwd(), ".aibridge");
 }
 function renderCreatedEntity(kind, entityId, details) {
   const lines = [successLine(`${kind} ready`), kv("ID           ", entityId)];
@@ -5081,7 +5712,7 @@ function renderCreatedEntity(kind, entityId, details) {
   return `${lines.join("\n")}
 `;
 }
-var CLI_VERSION = true ? "0.1.11" : "0.0.0";
+var CLI_VERSION = true ? "0.1.13" : "0.0.0";
 var VERSION_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1e3;
 function parseSemver(value) {
   const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
@@ -5113,12 +5744,12 @@ async function maybeWarnAboutNewVersion(io, flags) {
     return;
   }
   try {
-    const cacheDir = path6.join(os.homedir(), ".aibridge");
-    const cacheFile = path6.join(cacheDir, "version-check.json");
+    const cacheDir = path7.join(os2.homedir(), ".aibridge");
+    const cacheFile = path7.join(cacheDir, "version-check.json");
     const now = Date.now();
     let cached;
     try {
-      const raw = await fs6.readFile(cacheFile, "utf8");
+      const raw = await fs7.readFile(cacheFile, "utf8");
       cached = JSON.parse(raw);
     } catch {
       cached = void 0;
@@ -5154,8 +5785,8 @@ async function maybeWarnAboutNewVersion(io, flags) {
     if (!latest) {
       return;
     }
-    await fs6.mkdir(cacheDir, { recursive: true });
-    await fs6.writeFile(cacheFile, JSON.stringify({ checkedAt: now, latest }, null, 2), "utf8");
+    await fs7.mkdir(cacheDir, { recursive: true });
+    await fs7.writeFile(cacheFile, JSON.stringify({ checkedAt: now, latest }, null, 2), "utf8");
     if (isSemverNewer(latest, CLI_VERSION)) {
       io.stderr(
         `${warning("Update available:")} ${dim(CLI_VERSION)} ${dim("->")} ${success(latest)} ${dim(

@@ -28,6 +28,8 @@ export type AibridgeAccessRole = "admin" | "viewer";
 export type AibridgeAgentToolKind = "cursor" | "codex" | "antigravity";
 export type AibridgeAgentSessionStatus = "pending" | "active" | "stale" | "stopped" | "failed";
 export type AibridgeAgentLaunchSource = "dashboard" | "app" | "cli";
+export type AibridgeAgentLaunchMode = "prompt_copy" | "ui_dispatch" | "background_remote" | "non_chat_exec";
+export type AibridgeAgentDispatchStatus = "not_attempted" | "launched" | "unsupported" | "failed";
 export type AibridgeSetupTemplateId =
   | "web-app"
   | "api-backend"
@@ -196,6 +198,11 @@ export interface AibridgeAgentRecoveryState {
   reason?: string;
   prompt?: string;
   generatedAt?: string;
+  mode?: AibridgeAgentLaunchMode;
+  filesToAttach?: string[];
+  commandPreview?: string;
+  dispatchStatus?: AibridgeAgentDispatchStatus;
+  dispatchNote?: string;
 }
 
 export interface AibridgeLaunchInstructionSet {
@@ -204,10 +211,17 @@ export interface AibridgeLaunchInstructionSet {
   toolKind: AibridgeAgentToolKind;
   launchSource: AibridgeAgentLaunchSource;
   generatedAt: string;
+  mode: AibridgeAgentLaunchMode;
+  title: string;
+  subtitle?: string;
   prompt: string;
   firstSteps: string[];
   checklist: string[];
   cliCommand: string;
+  filesToAttach: string[];
+  commandPreview?: string;
+  dispatchStatus: AibridgeAgentDispatchStatus;
+  dispatchNote?: string;
   recoveryPrompt?: string;
 }
 
@@ -232,6 +246,32 @@ export interface AibridgeAgentSession {
   recovery?: AibridgeAgentRecoveryState;
 }
 
+export interface AibridgeAgentToolCapability {
+  tool: AibridgeAgentToolKind;
+  installed: boolean;
+  version?: string;
+  promptCopy: boolean;
+  uiDispatch: boolean;
+  recoveryDispatch: boolean;
+  nonChatExec: boolean;
+  fileAttach: boolean;
+  generatedRules: boolean;
+  mcpSupport: boolean;
+}
+
+export interface AibridgeProtocolIssue {
+  id: string;
+  type: "invalid_entity" | "stale_session" | "failed_session" | "stopped_with_work";
+  severity: "info" | "warning" | "critical";
+  title: string;
+  detail: string;
+  agentId?: AgentId;
+  sessionId?: string;
+  entityKind?: "task" | "message" | "handoff" | "decision" | "convention" | "release" | "announcement" | "session";
+  filePath?: string;
+  recommendedAction: "cleanup_and_reprompt" | "copy_recovery_prompt" | "review_session" | "none";
+}
+
 export interface AibridgeAccessState {
   role: AibridgeAccessRole;
   canMutate: boolean;
@@ -254,6 +294,8 @@ export interface AibridgeStatus {
   access: AibridgeAccessState;
   contextMarkdown?: string;
   issues?: string[];
+  protocolIssues?: AibridgeProtocolIssue[];
+  toolCapabilities?: AibridgeAgentToolCapability[];
 }
 
 export interface AibridgeBridgeConfig {
