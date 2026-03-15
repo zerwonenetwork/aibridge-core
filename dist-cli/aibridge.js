@@ -6118,6 +6118,36 @@ function dashboardPortCandidates(flags) {
   }
   return Array.from({ length: 8 }, (_, index) => 8780 + index);
 }
+function servicePortCandidates(flags) {
+  const explicitPort = parseNumberFlag(flags, "service-port");
+  if (explicitPort) {
+    return [explicitPort];
+  }
+  return Array.from({ length: 8 }, (_, index) => 4545 + index);
+}
+function buildDashboardLaunchPlans(flags) {
+  const dashboardPorts = dashboardPortCandidates(flags);
+  const servicePorts = servicePortCandidates(flags);
+  if (dashboardPorts.length === 1 && servicePorts.length === 1) {
+    return [{ dashboardPort: dashboardPorts[0], servicePort: servicePorts[0] }];
+  }
+  if (dashboardPorts.length === 1) {
+    return servicePorts.map((servicePort) => ({
+      dashboardPort: dashboardPorts[0],
+      servicePort
+    }));
+  }
+  if (servicePorts.length === 1) {
+    return dashboardPorts.map((dashboardPort) => ({
+      dashboardPort,
+      servicePort: servicePorts[0]
+    }));
+  }
+  return dashboardPorts.map((dashboardPort, index) => ({
+    dashboardPort,
+    servicePort: servicePorts[index] ?? servicePorts[servicePorts.length - 1]
+  }));
+}
 async function openInBrowser(targetUrl) {
   const platform = process.platform;
   if (platform === "win32") {
@@ -6143,10 +6173,27 @@ async function openInBrowser(targetUrl) {
   });
   child.unref();
 }
-async function waitForDashboardHealth(host, port, attempts = 30) {
+async function waitForDashboardHealth(host, port, child, attempts = 30) {
   let lastError;
+  let childExitError = null;
+  let childProcessError = null;
+  const onExit = (code, signal) => {
+    const suffix = typeof code === "number" ? ` with exit code ${code}` : signal ? ` after signal ${signal}` : "";
+    childExitError = new Error(`Dashboard process exited before becoming ready${suffix}.`);
+  };
+  const onError = (error2) => {
+    childProcessError = error2;
+  };
+  child?.once("exit", onExit);
+  child?.once("error", onError);
   for (let index = 0; index < attempts; index += 1) {
     try {
+      if (childProcessError) {
+        throw childProcessError;
+      }
+      if (childExitError) {
+        throw childExitError;
+      }
       return await getDashboardHealth({
         cwd: process.cwd(),
         host,
@@ -6156,6 +6203,14 @@ async function waitForDashboardHealth(host, port, attempts = 30) {
       lastError = error2;
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
+  }
+  child?.off("exit", onExit);
+  child?.off("error", onError);
+  if (childProcessError) {
+    throw childProcessError;
+  }
+  if (childExitError) {
+    throw childExitError;
   }
   throw lastError instanceof Error ? lastError : new Error("Dashboard did not become ready in time.");
 }
@@ -6184,7 +6239,17 @@ async function launchDetachedDashboard(host, port, servicePort = 4545) {
     windowsHide: true
   });
   child.unref();
-  return waitForDashboardHealth(host, port);
+  return waitForDashboardHealth(host, port, child);
+}
+function renderDashboardLaunchFailure(plans, lastError) {
+  const attemptedPorts = plans.map((plan) => `${plan.dashboardPort}/${plan.servicePort}`).join(", ");
+  return new BridgeRuntimeError(
+    "BAD_REQUEST",
+    `Unable to start the dashboard in the background. Tried dashboard/service port pairs ${attemptedPorts}. Use --port and --service-port to override the defaults.`,
+    {
+      reason: lastError instanceof Error ? lastError.message : String(lastError)
+    }
+  );
 }
 function renderCreatedEntity(kind, entityId, details) {
   const lines = [successLine(`${kind} ready`), kv("ID           ", entityId)];
@@ -6196,7 +6261,7 @@ function renderCreatedEntity(kind, entityId, details) {
   return `${lines.join("\n")}
 `;
 }
-var CLI_VERSION = true ? "0.1.14" : "0.0.0";
+var CLI_VERSION = true ? "0.1.15" : "0.0.0";
 var VERSION_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1e3;
 function parseSemver(value) {
   const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
@@ -6681,9 +6746,10 @@ async function runCli(rawArgs, io) {
     case "dashboard": {
       const normalizedSubcommand = subcommand ?? "open";
       const host = dashboardHostFlag(flags);
-      const port = dashboardPortFlag(flags);
+      const launchPlans = buildDashboardLaunchPlans(flags);
+      const port = launchPlans[0]?.dashboardPort ?? dashboardPortFlag(flags);
       const portCandidates = dashboardPortCandidates(flags);
-      const servicePort = parseNumberFlag(flags, "service-port") ?? 4545;
+      const servicePort = servicePortCandidates(flags)[0] ?? 4545;
       if (normalizedSubcommand === "open") {
         let health = await findExistingDashboardForWorkspace(host, portCandidates);
         if (health) {
@@ -6692,9 +6758,9 @@ async function runCli(rawArgs, io) {
         } else {
           let launched = false;
           let lastError;
-          for (const candidatePort of portCandidates) {
+          for (const launchPlan of launchPlans) {
             try {
-              health = await launchDetachedDashboard(host, candidatePort, servicePort);
+              health = await launchDetachedDashboard(host, launchPlan.dashboardPort, launchPlan.servicePort);
               io.stdout(`${successLine(`AiBridge dashboard started in the background at ${health.url}`)}
 `);
               launched = true;
@@ -6704,7 +6770,7 @@ async function runCli(rawArgs, io) {
             }
           }
           if (!launched || !health) {
-            throw lastError instanceof Error ? lastError : new Error("Unable to start the dashboard in the background.");
+            throw renderDashboardLaunchFailure(launchPlans, lastError);
           }
         }
         if (!flagBoolean(flags, "no-open")) {

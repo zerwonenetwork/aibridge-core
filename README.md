@@ -138,7 +138,7 @@ This command:
 - starts or reuses the local dashboard in the background
 - opens the workspace dashboard in your browser
 
-By default, the packaged dashboard uses a local port in the `8780-8787` range so it does not collide with common dev servers.
+By default, the packaged dashboard auto-scans local dashboard ports in the `8780-8787` range and local service ports in the `4545-4552` range so multiple workspaces can run side by side without manual port picking.
 
 ### 4. Development mode (repo only)
 
@@ -181,6 +181,9 @@ aibridge dashboard status
 
 # Stop the packaged dashboard background process
 aibridge dashboard stop
+
+# Override the auto-selected ports when needed
+aibridge dashboard --port 8784 --service-port 4549
 ```
 
 ---

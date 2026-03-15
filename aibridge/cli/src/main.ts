@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -580,6 +580,48 @@ function dashboardPortCandidates(flags: ParsedArgs["flags"]) {
   return Array.from({ length: 8 }, (_, index) => 8780 + index);
 }
 
+function servicePortCandidates(flags: ParsedArgs["flags"]) {
+  const explicitPort = parseNumberFlag(flags, "service-port");
+  if (explicitPort) {
+    return [explicitPort];
+  }
+
+  return Array.from({ length: 8 }, (_, index) => 4545 + index);
+}
+
+export interface DashboardLaunchPlan {
+  dashboardPort: number;
+  servicePort: number;
+}
+
+export function buildDashboardLaunchPlans(flags: ParsedArgs["flags"]): DashboardLaunchPlan[] {
+  const dashboardPorts = dashboardPortCandidates(flags);
+  const servicePorts = servicePortCandidates(flags);
+
+  if (dashboardPorts.length === 1 && servicePorts.length === 1) {
+    return [{ dashboardPort: dashboardPorts[0], servicePort: servicePorts[0] }];
+  }
+
+  if (dashboardPorts.length === 1) {
+    return servicePorts.map((servicePort) => ({
+      dashboardPort: dashboardPorts[0],
+      servicePort,
+    }));
+  }
+
+  if (servicePorts.length === 1) {
+    return dashboardPorts.map((dashboardPort) => ({
+      dashboardPort,
+      servicePort: servicePorts[0],
+    }));
+  }
+
+  return dashboardPorts.map((dashboardPort, index) => ({
+    dashboardPort,
+    servicePort: servicePorts[index] ?? servicePorts[servicePorts.length - 1],
+  }));
+}
+
 async function openInBrowser(targetUrl: string) {
   const platform = process.platform;
 
@@ -609,10 +651,37 @@ async function openInBrowser(targetUrl: string) {
   child.unref();
 }
 
-async function waitForDashboardHealth(host: string, port: number, attempts = 30) {
+async function waitForDashboardHealth(host: string, port: number, child?: ChildProcess, attempts = 30) {
   let lastError: unknown;
+  let childExitError: Error | null = null;
+  let childProcessError: Error | null = null;
+
+  const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    const suffix =
+      typeof code === "number"
+        ? ` with exit code ${code}`
+        : signal
+          ? ` after signal ${signal}`
+          : "";
+    childExitError = new Error(`Dashboard process exited before becoming ready${suffix}.`);
+  };
+  const onError = (error: Error) => {
+    childProcessError = error;
+  };
+
+  child?.once("exit", onExit);
+  child?.once("error", onError);
+
   for (let index = 0; index < attempts; index += 1) {
     try {
+      if (childProcessError) {
+        throw childProcessError;
+      }
+
+      if (childExitError) {
+        throw childExitError;
+      }
+
       return await getDashboardHealth({
         cwd: process.cwd(),
         host,
@@ -622,6 +691,17 @@ async function waitForDashboardHealth(host: string, port: number, attempts = 30)
       lastError = error;
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
+  }
+
+  child?.off("exit", onExit);
+  child?.off("error", onError);
+
+  if (childProcessError) {
+    throw childProcessError;
+  }
+
+  if (childExitError) {
+    throw childExitError;
   }
 
   throw lastError instanceof Error ? lastError : new Error("Dashboard did not become ready in time.");
@@ -657,7 +737,18 @@ async function launchDetachedDashboard(host: string, port: number, servicePort =
   });
   child.unref();
 
-  return waitForDashboardHealth(host, port);
+  return waitForDashboardHealth(host, port, child);
+}
+
+function renderDashboardLaunchFailure(plans: DashboardLaunchPlan[], lastError: unknown) {
+  const attemptedPorts = plans.map((plan) => `${plan.dashboardPort}/${plan.servicePort}`).join(", ");
+  return new BridgeRuntimeError(
+    "BAD_REQUEST",
+    `Unable to start the dashboard in the background. Tried dashboard/service port pairs ${attemptedPorts}. Use --port and --service-port to override the defaults.`,
+    {
+      reason: lastError instanceof Error ? lastError.message : String(lastError),
+    },
+  );
 }
 
 function renderCreatedEntity(kind: string, entityId: string, details: Array<[string, string | undefined]>) {
@@ -1217,9 +1308,10 @@ export async function runCli(rawArgs: string[], io: { stdout: (text: string) => 
     case "dashboard": {
       const normalizedSubcommand = subcommand ?? "open";
       const host = dashboardHostFlag(flags);
-      const port = dashboardPortFlag(flags);
+      const launchPlans = buildDashboardLaunchPlans(flags);
+      const port = launchPlans[0]?.dashboardPort ?? dashboardPortFlag(flags);
       const portCandidates = dashboardPortCandidates(flags);
-      const servicePort = parseNumberFlag(flags, "service-port") ?? 4545;
+      const servicePort = servicePortCandidates(flags)[0] ?? 4545;
 
       if (normalizedSubcommand === "open") {
         let health = await findExistingDashboardForWorkspace(host, portCandidates);
@@ -1228,9 +1320,9 @@ export async function runCli(rawArgs: string[], io: { stdout: (text: string) => 
         } else {
           let launched = false;
           let lastError: unknown;
-          for (const candidatePort of portCandidates) {
+          for (const launchPlan of launchPlans) {
             try {
-              health = await launchDetachedDashboard(host, candidatePort, servicePort);
+              health = await launchDetachedDashboard(host, launchPlan.dashboardPort, launchPlan.servicePort);
               io.stdout(`${successLine(`AiBridge dashboard started in the background at ${health.url}`)}\n`);
               launched = true;
               break;
@@ -1240,7 +1332,7 @@ export async function runCli(rawArgs: string[], io: { stdout: (text: string) => 
           }
 
           if (!launched || !health) {
-            throw lastError instanceof Error ? lastError : new Error("Unable to start the dashboard in the background.");
+            throw renderDashboardLaunchFailure(launchPlans, lastError);
           }
         }
 

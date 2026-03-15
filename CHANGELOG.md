@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.15 — 2026-03-15
+
+### Fixed
+- **Packaged dashboard auto-port selection** — `aibridge dashboard` now auto-pairs dashboard ports `8780-8787` with service ports `4545-4552`, so multiple AiBridge workspaces can run side by side without manual `--service-port` overrides.
+- **Background launcher failure reporting** — when the detached packaged dashboard fails before becoming healthy, the CLI now fails fast with a clear error instead of appearing stuck.
+- **Dashboard docs** — the packaged workflow docs now describe the automatic port scanning and the `--port` / `--service-port` escape hatch accurately.
+
 ## 0.1.14 — 2026-03-15
 
 ### Added

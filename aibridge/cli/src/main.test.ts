@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { runCli } from "./main.ts";
+import { buildDashboardLaunchPlans, runCli } from "./main.ts";
 
 const tempDirs: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -250,6 +250,41 @@ describe("runCli", () => {
     } finally {
       process.chdir(previousCwd);
     }
+  });
+
+  it("pairs dashboard and service ports for background launch defaults", () => {
+    expect(buildDashboardLaunchPlans({})).toEqual([
+      { dashboardPort: 8780, servicePort: 4545 },
+      { dashboardPort: 8781, servicePort: 4546 },
+      { dashboardPort: 8782, servicePort: 4547 },
+      { dashboardPort: 8783, servicePort: 4548 },
+      { dashboardPort: 8784, servicePort: 4549 },
+      { dashboardPort: 8785, servicePort: 4550 },
+      { dashboardPort: 8786, servicePort: 4551 },
+      { dashboardPort: 8787, servicePort: 4552 },
+    ]);
+
+    expect(buildDashboardLaunchPlans({ port: "8784" })).toEqual([
+      { dashboardPort: 8784, servicePort: 4545 },
+      { dashboardPort: 8784, servicePort: 4546 },
+      { dashboardPort: 8784, servicePort: 4547 },
+      { dashboardPort: 8784, servicePort: 4548 },
+      { dashboardPort: 8784, servicePort: 4549 },
+      { dashboardPort: 8784, servicePort: 4550 },
+      { dashboardPort: 8784, servicePort: 4551 },
+      { dashboardPort: 8784, servicePort: 4552 },
+    ]);
+
+    expect(buildDashboardLaunchPlans({ "service-port": "4551" })).toEqual([
+      { dashboardPort: 8780, servicePort: 4551 },
+      { dashboardPort: 8781, servicePort: 4551 },
+      { dashboardPort: 8782, servicePort: 4551 },
+      { dashboardPort: 8783, servicePort: 4551 },
+      { dashboardPort: 8784, servicePort: 4551 },
+      { dashboardPort: 8785, servicePort: 4551 },
+      { dashboardPort: 8786, servicePort: 4551 },
+      { dashboardPort: 8787, servicePort: 4551 },
+    ]);
   });
 
   it("redirects release and announcement commands to the hosted admin UI", async () => {

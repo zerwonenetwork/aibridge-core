@@ -133,7 +133,7 @@ aibridge init --template web-app --name "Acme Web" --description "Ship the first
 aibridge dashboard
 \`\`\`
 
-This starts or reuses the local bridge service, backgrounds the packaged dashboard for the current workspace, and opens the browser for you.
+This starts or reuses the local bridge service, backgrounds the packaged dashboard for the current workspace, and opens the browser for you. The packaged launcher auto-scans dashboard ports \`8780-8787\` and service ports \`4545-4552\` so multiple local workspaces can run side by side.
 
 ## 5. Development mode (repo only)
 
