@@ -10,6 +10,7 @@ import { launchPresentation, recoveryPresentation } from "./adapters";
 
 const ACTIVE_STALE_MS = 10 * 60 * 1000;
 const PENDING_STALE_MS = 5 * 60 * 1000;
+const CONTEXT_STALE_GRACE_MS = 90 * 1000;
 
 function pickLatestTimestamp(...values: Array<string | undefined>) {
   return values.filter(Boolean).sort((left, right) => String(right).localeCompare(String(left)))[0];
@@ -33,7 +34,7 @@ function unreadMessagesForAgent(snapshot: AibridgeBridgeSnapshot, agentId: strin
 
 function openHandoffsForAgent(snapshot: AibridgeBridgeSnapshot, agentId: string) {
   return snapshot.handoffs
-    .filter((handoff) => handoff.toAgentId === agentId)
+    .filter((handoff) => (handoff.status ?? "open") !== "completed" && handoff.toAgentId === agentId)
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 }
 
@@ -209,7 +210,8 @@ export function deriveAgentSession(
   if (
     (session.status === "active" || session.status === "pending") &&
     session.acknowledgedContextTimestamp &&
-    snapshot.lastSyncAt > session.acknowledgedContextTimestamp
+    snapshot.lastSyncAt > session.acknowledgedContextTimestamp &&
+    nowMs - toMillis(snapshot.lastSyncAt) > CONTEXT_STALE_GRACE_MS
   ) {
     status = status === "active" ? "stale" : status;
     reason = "Context changed after this agent acknowledged the workspace.";

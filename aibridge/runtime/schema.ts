@@ -14,6 +14,7 @@ export const taskStatuses = ["pending", "in_progress", "done"] as const;
 export const priorities = ["low", "medium", "high"] as const;
 export const messageSeverities = ["info", "warning", "critical"] as const;
 export const decisionStatuses = ["proposed", "accepted", "superseded"] as const;
+export const handoffStatuses = ["open", "accepted", "completed"] as const;
 export const releaseStatuses = ["draft", "published", "archived"] as const;
 export const announcementStatuses = ["draft", "published", "pinned", "archived"] as const;
 export const announcementAudiences = ["all", "admin", "internal"] as const;
@@ -107,6 +108,11 @@ export const handoffSchema = z.object({
   toAgentId: z.string().min(1),
   description: z.string().min(1),
   timestamp: z.string().datetime(),
+  status: z.enum(handoffStatuses).default("open"),
+  updatedAt: z.string().datetime().optional(),
+  acceptedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  resolvedByAgentId: z.string().min(1).optional(),
   relatedTaskIds: z.array(z.string().min(1)).optional(),
 });
 

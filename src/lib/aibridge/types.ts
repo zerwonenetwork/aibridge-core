@@ -10,6 +10,7 @@ export type AibridgeAgentKind =
   | "custom";
 export type AibridgeMessageSeverity = "info" | "warning" | "critical";
 export type AibridgeDecisionStatus = "proposed" | "accepted" | "superseded";
+export type AibridgeHandoffStatus = "open" | "accepted" | "completed";
 export type AibridgeConventionCategory =
   | "code-style"
   | "architecture"
@@ -75,6 +76,11 @@ export interface AibridgeHandoff {
   toAgentId: AgentId;
   description: string;
   timestamp: string;
+  status: AibridgeHandoffStatus;
+  updatedAt?: string;
+  acceptedAt?: string;
+  completedAt?: string;
+  resolvedByAgentId?: AgentId;
   relatedTaskIds?: string[];
 }
 
@@ -270,6 +276,31 @@ export interface AibridgeProtocolIssue {
   entityKind?: "task" | "message" | "handoff" | "decision" | "convention" | "release" | "announcement" | "session";
   filePath?: string;
   recommendedAction: "cleanup_and_reprompt" | "copy_recovery_prompt" | "review_session" | "none";
+}
+
+export type AibridgeVerificationIssueKind =
+  | "message_ack"
+  | "handoff_status"
+  | "decision_create"
+  | "decision_status"
+  | "log_create"
+  | "session_start"
+  | "session_heartbeat"
+  | "session_stop"
+  | "session_dispatch"
+  | "session_recovery_dispatch"
+  | "session_recover";
+
+export interface AibridgeVerificationIssue {
+  id: string;
+  kind: AibridgeVerificationIssueKind;
+  createdAt: string;
+  title: string;
+  detail: string;
+  severity: "warning" | "critical";
+  targetId: string;
+  expectedStatus?: string;
+  recommendedView: "inbox" | "agents" | "messages" | "decisions";
 }
 
 export interface AibridgeAccessState {

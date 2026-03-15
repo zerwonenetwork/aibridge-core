@@ -20,7 +20,8 @@ export const OverviewView = React.forwardRef<HTMLDivElement, OverviewViewProps>(
   const { context, logs, tasks, handoffs, conventions, decisions, messages } = status;
 
   const unreadMessages = messages.filter(m => !m.acknowledged).length;
-  const inboxCount = unreadMessages + handoffs.length + (status.issues?.length ?? 0) + status.sessions.filter(s => s.status === "stale" || s.status === "failed").length;
+  const openHandoffs = handoffs.filter((handoff) => handoff.status !== "completed");
+  const inboxCount = unreadMessages + openHandoffs.length + (status.issues?.length ?? 0) + status.sessions.filter(s => s.status === "stale" || s.status === "failed").length;
 
   const statCards = [
     { label: "Pending", value: context.taskCounts.pending, color: "text-yellow-400", large: false },
@@ -117,13 +118,14 @@ export const OverviewView = React.forwardRef<HTMLDivElement, OverviewViewProps>(
               <button onClick={() => onNavigate("agents")} className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="w-3 h-3" /></button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {handoffs.slice(0, 3).map(h => {
+              {openHandoffs.slice(0, 3).map(h => {
                 const from = context.activeAgents.find(a => a.id === h.fromAgentId);
                 const to = context.activeAgents.find(a => a.id === h.toAgentId);
                 return (
                   <div key={h.id} className="text-sm">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-0.5">
                       <span className="font-display text-foreground">{from?.name}</span> → <span className="font-display text-foreground">{to?.name}</span>
+                      <Badge variant="outline" className="text-[9px] uppercase">{h.status}</Badge>
                       <span className="ml-auto">{formatDistanceToNow(new Date(h.timestamp), { addSuffix: true })}</span>
                     </div>
                     <p className="text-foreground/80 text-xs">{h.description}</p>

@@ -22,7 +22,7 @@ export function AgentDetailPanel({ agent, open, onClose, logs, tasks, handoffs }
   const color = getAgentColor(agent.kind);
   const agentLogs = logs.filter(l => l.agentId === agent.id).slice(0, 5);
   const agentTasks = tasks.filter(t => t.agentId === agent.id);
-  const agentHandoffs = handoffs.filter(h => h.fromAgentId === agent.id || h.toAgentId === agent.id);
+  const agentHandoffs = handoffs.filter(h => h.status !== "completed" && (h.fromAgentId === agent.id || h.toAgentId === agent.id));
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -85,6 +85,7 @@ export function AgentDetailPanel({ agent, open, onClose, logs, tasks, handoffs }
                     <span className="font-display text-foreground">{h.fromAgentId === agent.id ? agent.name : "→"}</span>
                     <ArrowRight className="w-3 h-3" />
                     <span className="font-display text-foreground">{h.toAgentId === agent.id ? agent.name : "→"}</span>
+                    <Badge variant="outline" className="text-[9px] uppercase">{h.status}</Badge>
                     <span className="ml-auto">{formatDistanceToNow(new Date(h.timestamp), { addSuffix: true })}</span>
                   </div>
                   <p className="text-foreground/80">{h.description}</p>

@@ -52,6 +52,7 @@ import {
   parseAgentToolKind,
   parseConventionCategory,
   parseDecisionStatus,
+  parseHandoffStatus,
   parseMessageSeverity,
   parsePriority,
   parseReleaseStatus,
@@ -64,6 +65,7 @@ import {
   stopAgentSession,
   updateAnnouncement,
   updateDecisionStatus,
+  updateHandoffStatus,
   updateRelease,
   updateTask,
 } from "../../runtime/store";
@@ -775,6 +777,19 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse,
       runtime,
       revision: await computeRevision(rootPath),
     });
+    return;
+  }
+
+  const handoffMatch = request.method === "PATCH" ? url.pathname.match(/^\/bridge\/handoffs\/([^/]+)$/) : null;
+  if (handoffMatch) {
+    const body = await readJsonBody(request);
+    const { rootPath, runtime } = await resolveRuntime(options, body.source, body.rootPath);
+    const handoff = await updateHandoffStatus(rootPath, handoffMatch[1], {
+      status: parseHandoffStatus(String(body.status ?? "")),
+      agentId: typeof body.agentId === "string" ? body.agentId : undefined,
+    });
+    const status = await getStatusSummary(rootPath, resolveAccess(request, options));
+    sendJson(response, 200, withStatusEnvelope(handoff, status, runtime, await computeRevision(rootPath)));
     return;
   }
 

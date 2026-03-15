@@ -39,8 +39,8 @@ Modern teams use more than one AI assistant, but each tool operates in isolation
 
 AiBridge creates a \`.aibridge/\` directory in your project that acts as the shared brain:
 - A **protocol** of plain JSON and Markdown files every agent can read and write.
-- A **CLI** to manage tasks, messages, decisions, and handoffs.
-- A **dashboard** to visualize everything in real time.
+- A **CLI/runtime layer** to manage canonical tasks, messages, decisions, handoffs, and sessions.
+- A **dashboard** for humans to launch, review, recover, and repair coordination in real time.
 - A **local runtime** that serves bridge data to the UI without needing a cloud account.
 
 > Files are the universal interface. Every AI tool can read and write them.`,
@@ -71,7 +71,7 @@ Every file uses a published JSON schema, so any tool that reads files can partic
 ## Data Flow
 
 1. **An agent works** — it reads \`CONTEXT.md\` and its own agent file to understand the current state.
-2. **The CLI captures changes** — developers (or agents) use CLI commands to log tasks, decisions, and handoffs.
+2. **The runtime captures changes** — agents use CLI commands and humans use the dashboard or local service to record canonical state changes.
 3. **Context is regenerated** — \`aibridge context generate\` rebuilds \`CONTEXT.md\` from all structured files.
 4. **The next agent picks up** — it reads the fresh context and continues where the previous agent left off.
 
@@ -100,10 +100,10 @@ Every file uses a published JSON schema, so any tool that reads files can partic
 
 Get AiBridge running in under two minutes.
 
-## 1. Install the CLI
+## 1. Install the package
 
 \`\`\`bash
-npm install -g @zerwone/aibridge
+npm install -g @zerwonenetwork/aibridge-core
 \`\`\`
 
 ## 2. Initialize your project
@@ -127,15 +127,32 @@ If you already know the template and stack you want, you can initialize in one s
 aibridge init --template web-app --name "Acme Web" --description "Ship the first customer-facing flow" --stack react,typescript,supabase --multi-agent
 \`\`\`
 
-## 4. Start the dashboard
+## 4. Start the packaged dashboard
 
 \`\`\`bash
-aibridge serve
+aibridge dashboard
+\`\`\`
+
+This starts or reuses the local bridge service, backgrounds the packaged dashboard for the current workspace, and opens the browser for you.
+
+## 5. Development mode (repo only)
+
+\`\`\`bash
+npm run dev
 \`\`\`
 
 Then open the local workspace dashboard at \`http://localhost:8080/dashboard\`.
 
-## 5. Assign your first task
+## 6. Stay in the dashboard for normal human work
+
+Use \`/dashboard\` to:
+
+- initialize or connect a workspace
+- launch and recover agents
+- review unread messages, open handoffs, and protocol issues
+- acknowledge messages, resolve handoffs, record decisions, and regenerate context
+
+## 7. Assign your first task
 
 \`\`\`bash
 aibridge task add "Build auth flow" --assign cursor --priority high
@@ -160,20 +177,20 @@ Your first task is now visible to all agents via \`CONTEXT.md\`.`,
 
 \`\`\`bash
 # npm
-npm install -g @zerwone/aibridge
+npm install -g @zerwonenetwork/aibridge-core
 
 # pnpm
-pnpm add -g @zerwone/aibridge
+pnpm add -g @zerwonenetwork/aibridge-core
 
 # bun
-bun add -g @zerwone/aibridge
+bun add -g @zerwonenetwork/aibridge-core
 \`\`\`
 
 ## Verify Installation
 
 \`\`\`bash
 aibridge --version
-# → @zerwone/aibridge v1.0.0
+# → @zerwonenetwork/aibridge-core v0.1.x
 \`\`\`
 
 ## Project Setup
@@ -1194,14 +1211,11 @@ aibridge context generate --output ./CONTEXT.md
     keywords: ["dashboard", "ui", "overview", "panels"],
     content: `# Dashboard
 
-The AiBridge dashboard provides a **real-time visual interface** for your bridge state. It shows tasks, agents, messages, decisions, conventions, and activity in an integrated view.
+The AiBridge dashboard provides a **real-time operator console** for your bridge state. It is the primary human workflow for setup, launch, review, recovery, and protocol repair.
 
 ## Accessing the Dashboard
 
-AiBridge currently has two app surfaces:
-
-- **Local Workspace**: \`/dashboard\`
-- **Hosted Workspace Control Plane**: \`/app\`
+AiBridge Core ships the **local workspace** surface at \`/dashboard\`. Hosted control-plane features live in a separate product.
 
 Start the local bridge service:
 
@@ -1212,19 +1226,19 @@ aibridge serve
 Then open:
 
 - Local workspace: \`http://localhost:8080/dashboard\`
-- Hosted control plane: \`http://localhost:8080/app\`
 
 ## Views
 
 | View | Description |
 |------|-------------|
-| **Overview** | Summary cards, task distribution, recent activity |
+| **Overview** | Summary cards, task distribution, recent activity, and decisions |
+| **Inbox** | Human operator queue for unread messages, open handoffs, stale sessions, and protocol issues |
 | **Tasks** | Kanban-style task board with drag-and-drop |
 | **Activity** | Chronological feed of all agent actions |
-| **Messages** | Inter-agent communication with severity filtering |
-| **Agents** | Agent cards with session reliability, launch prompts, and activity |
+| **Messages** | Inter-agent communication plus send and acknowledge actions |
+| **Agents** | Agent cards with session reliability, launch prompts, recovery, and handoff actions |
 | **Conventions** | Active rules with category filtering |
-| **Decisions** | ADR timeline with status badges |
+| **Decisions** | ADR timeline with status badges and status updates |
 | **Settings** | Mode selection, source configuration, profile |
 
 ## Data Sources
@@ -1549,7 +1563,7 @@ The CLI and local runtime are open source and free. The hosted dashboard and clo
 It's regenerated automatically after every state mutation (task changes, messages, handoffs, etc.) by the CLI or local service.
 
 **Q: Can agents write to .aibridge/ directly?**
-Yes! The protocol is just files. Agents can read and write them directly, or use the CLI/API for structured mutations.
+Agents should **read** \`.aibridge/\` freely, but canonical mutations should go through the CLI/runtime or local service. Manual JSON edits can be flagged as protocol issues in the dashboard.
 
 **Q: What if two agents edit the same file?**
 AiBridge uses stable IDs and the \`ownedPaths\` mechanism to reduce conflicts. Git merge handles the rest. True conflict resolution is planned for the cloud sync layer.

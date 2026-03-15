@@ -33,7 +33,7 @@ This repository is the **local-first open-core foundation**:
 | **Dashboard** | Local reference UI at `/dashboard` |
 | **Setup** | Template-driven engine + onboarding wizard |
 | **Capture** | Git hooks + file watcher |
-| **Agents** | UI-first launch center, recovery, protocol repair, and adapter-backed execution |
+| **Agents** | UI-first launch center, inbox-first review flow, recovery, protocol repair, and adapter-backed execution |
 
 > **Note:** Hosted commercial control-plane features live in a separate product repository and are **not** included here.
 
@@ -69,11 +69,11 @@ This repository is the **local-first open-core foundation**:
 
 - **`.aibridge` protocol** — local coordination state and schema
 - **CLI** — setup, tasks, messages, handoffs, decisions, conventions, logs, context, capture, agent sessions
-- **Local dashboard** — at `/dashboard` (overview, tasks, activity, messages, agents, conventions, decisions, settings)
+- **Local dashboard** — at `/dashboard` (inbox-first operator console for setup, launch, review, recovery, and repair)
 - **Local service** — at `http://127.0.0.1:4545` (HTTP + SSE)
 - **Setup engine** — reusable templates and generated starter plans
 - **Capture** — git hooks + file watcher for automatic activity capture
-- **Agent reliability** — launch prompts, session lifecycle, heartbeats, stale detection, recovery prompts, protocol repair
+- **Agent reliability** — launch prompts, session lifecycle, heartbeats, grace-tuned stale detection, recovery prompts, protocol repair
 
 ---
 
@@ -126,13 +126,21 @@ npm run aibridge -- init --template web-app --name "My Project" --description "S
 npm run aibridge -- init --name "My Project" --agents cursor,claude,codex
 ```
 
-### 3. Start the local service
+### 3. Start the packaged dashboard
 
 ```bash
-npm run aibridge:service
+aibridge dashboard
 ```
 
-### 4. Start the dashboard
+This command:
+
+- starts or reuses the local bridge service
+- starts or reuses the local dashboard in the background
+- opens the workspace dashboard in your browser
+
+By default, the packaged dashboard uses a local port in the `8780-8787` range so it does not collide with common dev servers.
+
+### 4. Development mode (repo only)
 
 In a separate terminal:
 
@@ -149,6 +157,31 @@ http://localhost:8080/dashboard
 ```
 
 If no bridge is found, the dashboard can launch the same setup engine used by the CLI.
+
+### 6. Use the dashboard for normal human work
+
+AiBridge Core is designed so **humans mostly stay in `/dashboard`**:
+
+- initialize or open a workspace
+- launch agents and copy or dispatch launch prompts
+- review unread messages, open handoffs, stale sessions, and protocol issues from Inbox
+- acknowledge messages, accept or resolve handoffs, record decisions, add operator logs, and regenerate context
+- recover stale agents or repair invalid protocol state without hand-editing `.aibridge`
+
+The **CLI remains the canonical engine** for agent/runtime mutations and advanced automation.
+
+### Dashboard background commands
+
+```bash
+# Start or attach to the packaged dashboard and open the browser
+aibridge dashboard
+
+# Check whether a dashboard is already running for this workspace
+aibridge dashboard status
+
+# Stop the packaged dashboard background process
+aibridge dashboard stop
+```
 
 ---
 
@@ -211,6 +244,7 @@ npm run aibridge -- agent launch --agent cursor --tool cursor
 - **`release`** and **`announcement`** are not part of AiBridge Core CLI; they are handled by the separate commercial product.
 - **`sync`** is intentionally not implemented; AiBridge Core is local-first and does not ship full cloud sync.
 - **Humans should stay in the UI.** The dashboard is the primary path for setup, launch, recovery, and review. The CLI remains the canonical mutation/runtime surface for agents and advanced automation.
+- **`aibridge dashboard`** is the easiest packaged entrypoint. It backgrounds the dashboard and local service for the current workspace, then opens the browser for you.
 
 ---
 
@@ -223,6 +257,8 @@ AiBridge Core ships a **local dashboard** reference app.
 </p>
 
 **Views:** Overview · Inbox · Tasks · Activity · Messages · Agents · Conventions · Decisions · Settings
+
+The default operator journey is now **Inbox first**, not CLI first.
 
 The dashboard uses the local service and reads local `.aibridge` state. It does **not** include a hosted `/app` control plane.
 
@@ -244,6 +280,25 @@ The **Coordinator Inbox** surfaces:
 - open handoffs
 - stale/failed sessions
 - protocol issues such as invalid hand-written `.aibridge/*.json` files
+
+The dashboard also gives human operators direct mutation controls for common coordination work:
+
+- **Messages** — send and acknowledge messages without dropping to terminal
+- **Handoffs** — accept and resolve open handoffs from Inbox or Agents
+- **Decisions** — record and update decision status from the Decisions view
+- **Logs** — add operator logs from Inbox while reviewing an active workspace
+- **Context** — regenerate current context after meaningful state changes
+
+### Typical package workflow
+
+1. Open `/dashboard`
+2. Initialize or connect a local workspace
+3. Launch agents from the Agent Launch Center
+4. Let agents mutate canonical state through the CLI/runtime
+5. Use Inbox to review messages, handoffs, stale sessions, and protocol issues
+6. Repair or recover anything that needs human confirmation
+
+AiBridge intentionally treats the **dashboard as the human control surface** and the **CLI/runtime as the agent execution surface**.
 
 ---
 

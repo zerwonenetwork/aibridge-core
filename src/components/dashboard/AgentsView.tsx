@@ -34,6 +34,7 @@ interface AgentsViewProps {
   onRecoverSession: (sessionId: string) => Promise<AibridgeAgentSession>;
   onDispatchRecovery: (sessionId: string) => Promise<AibridgeAgentSession>;
   onRunNonChat: (sessionId: string) => Promise<AibridgeAgentSession>;
+  onUpdateHandoff: (handoffId: string, payload: { status: AibridgeHandoff["status"]; agentId?: string }) => Promise<AibridgeHandoff>;
 }
 
 const item = {
@@ -71,6 +72,7 @@ export function AgentsView({
   onRecoverSession,
   onDispatchRecovery,
   onRunNonChat,
+  onUpdateHandoff,
 }: AgentsViewProps) {
   const [selectedAgent, setSelectedAgent] = useState<AibridgeAgent | null>(null);
   const [launchAgentId, setLaunchAgentId] = useState(agents[0]?.id ?? "");
@@ -126,7 +128,7 @@ export function AgentsView({
   }
 
   function openHandoffCount(agentId: string) {
-    return handoffs.filter((handoff) => handoff.toAgentId === agentId).length;
+    return handoffs.filter((handoff) => handoff.status !== "completed" && handoff.toAgentId === agentId).length;
   }
 
   function capabilityFor(toolKind: AibridgeAgentToolKind) {
@@ -553,9 +555,32 @@ export function AgentsView({
                     <Badge className={`text-[10px] font-display border ${fromColor?.bg} ${fromColor?.text} ${fromColor?.border}`}>{from?.name}</Badge>
                     <ArrowRight className="w-3 h-3 text-muted-foreground" />
                     <Badge className={`text-[10px] font-display border ${toColor?.bg} ${toColor?.text} ${toColor?.border}`}>{to?.name}</Badge>
+                    <Badge variant="outline" className="text-[10px] uppercase">{handoff.status}</Badge>
                     <span className="text-muted-foreground ml-2">{formatDistanceToNow(new Date(handoff.timestamp), { addSuffix: true })}</span>
                   </div>
                   <p className="text-sm text-foreground/80">{handoff.description}</p>
+                  {handoff.status !== "completed" ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {handoff.status === "open" ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1.5 text-[10px]"
+                          onClick={() => void onUpdateHandoff(handoff.id, { status: "accepted", agentId: handoff.toAgentId })}
+                        >
+                          Mark accepted
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 text-[10px]"
+                        onClick={() => void onUpdateHandoff(handoff.id, { status: "completed", agentId: handoff.toAgentId })}
+                      >
+                        Resolve
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );
@@ -569,6 +594,7 @@ export function AgentsView({
         onClose={() => setSelectedAgent(null)}
         logs={logs}
         tasks={tasks}
+        handoffs={handoffs}
       />
     </div>
   );

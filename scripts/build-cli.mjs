@@ -48,6 +48,20 @@ await cp(
   { recursive: true },
 );
 
+try {
+  await cp(
+    path.resolve(rootDir, "dist"),
+    path.resolve(distDir, "dashboard-app"),
+    { recursive: true },
+  );
+} catch (error) {
+  if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    // Allow CLI-only local builds, but published packages should run the full build so dashboard assets are present.
+  } else {
+    throw error;
+  }
+}
+
 await mkdir(path.resolve(distDir, "aibridge/cli/commands"), { recursive: true });
 await cp(
   path.resolve(rootDir, "aibridge/cli/commands"),

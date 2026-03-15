@@ -42,7 +42,7 @@ const Dashboard = () => {
     noindex: true,
   });
 
-  const [activeView, setActiveView] = useState<DashboardView>("overview");
+  const [activeView, setActiveView] = useState<DashboardView>("inbox");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -59,9 +59,17 @@ const Dashboard = () => {
     preferences,
     loading,
     error,
+    verificationIssues,
+    dismissVerificationIssue,
     refresh,
     updateTaskStatus,
     acknowledgeMessage,
+    createMessage,
+    createHandoff,
+    updateHandoff,
+    createDecision,
+    updateDecision,
+    createLog,
     addTask,
     sync,
     setLocalSource,
@@ -95,6 +103,7 @@ const Dashboard = () => {
     () => status.protocolIssues?.find((issue) => issue.recommendedAction === "cleanup_and_reprompt"),
     [status.protocolIssues],
   );
+  const latestVerificationIssues = verificationIssues.slice(0, 3);
 
   const handleViewChange = (view: DashboardView) => {
     setActiveView(view);
@@ -150,13 +159,37 @@ const Dashboard = () => {
       case "overview":
         return <OverviewView status={status} onNavigate={handleViewChange} />;
       case "inbox":
-        return <InboxView status={status} onNavigate={handleViewChange} />;
+        return (
+          <InboxView
+            status={status}
+            verificationIssues={verificationIssues}
+            onNavigate={handleViewChange}
+            onAcknowledgeMessage={acknowledgeMessage}
+            onRecoverSession={recoverAgentSession}
+            onDispatchRecovery={dispatchAgentRecovery}
+            onHeartbeatSession={heartbeatAgentSession}
+            onCreateDecision={createDecision}
+            onCreateLog={createLog}
+            onUpdateHandoff={updateHandoff}
+            onCopyRepairPrompt={fetchRepairPrompt}
+            onCleanupProtocolIssue={cleanupProtocolIssue}
+            onRegenerateContext={sync}
+            onDismissVerificationIssue={dismissVerificationIssue}
+          />
+        );
       case "tasks":
         return <TaskBoard tasks={status.tasks} agents={status.context.activeAgents} onStatusChange={updateTaskStatus} onAddTask={addTask} />;
       case "activity":
         return <ActivityFeed logs={status.logs} agents={status.context.activeAgents} />;
       case "messages":
-        return <MessagesView messages={status.messages} agents={status.context.activeAgents} onAcknowledge={acknowledgeMessage} />;
+        return (
+          <MessagesView
+            messages={status.messages}
+            agents={status.context.activeAgents}
+            onAcknowledge={acknowledgeMessage}
+            onCreateMessage={createMessage}
+          />
+        );
       case "agents":
         return (
           <AgentsView
@@ -175,12 +208,20 @@ const Dashboard = () => {
             onRecoverSession={recoverAgentSession}
             onDispatchRecovery={dispatchAgentRecovery}
             onRunNonChat={runAgentNonChat}
+            onUpdateHandoff={updateHandoff}
           />
         );
       case "conventions":
         return <ConventionsView conventions={status.conventions} />;
       case "decisions":
-        return <DecisionsView decisions={status.decisions} />;
+        return (
+          <DecisionsView
+            decisions={status.decisions}
+            agents={status.context.activeAgents}
+            onCreateDecision={createDecision}
+            onUpdateDecision={updateDecision}
+          />
+        );
       case "settings":
         return (
           <SettingsView
@@ -356,6 +397,28 @@ const Dashboard = () => {
                         </Button>
                       ) : null}
                     </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {!error && latestVerificationIssues.length > 0 && (
+                <Card className="bg-card border-amber-500/30 mb-4">
+                  <CardContent className="p-4 space-y-3 text-sm">
+                    <p className="font-medium text-foreground">Action verification needed</p>
+                    {latestVerificationIssues.map((issue) => (
+                      <div key={issue.id} className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
+                        <p className="text-foreground">{issue.title}</p>
+                        <p className="text-muted-foreground mt-1">{issue.detail}</p>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleViewChange(issue.recommendedView)}>
+                            Review in {issue.recommendedView}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => dismissVerificationIssue(issue.id)}>
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </CardContent>
                 </Card>
               )}

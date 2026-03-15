@@ -59,6 +59,7 @@ import {
   conventionSchema,
   decisionStatuses,
   decisionSchema,
+  handoffStatuses,
   handoffSchema,
   logEntrySchema,
   messageSeverities,
@@ -159,6 +160,11 @@ export interface HandoffCreatePayload {
   toAgentId: string;
   description: string;
   relatedTaskIds?: string[];
+}
+
+export interface HandoffMutationPayload {
+  status: AibridgeHandoff["status"];
+  agentId?: string;
 }
 
 export interface AgentSessionLaunchPayload {
@@ -749,6 +755,10 @@ function normalizeList(values: string[] | undefined) {
   return (values ?? []).map((value) => value.trim()).filter(Boolean);
 }
 
+function isOpenHandoff(handoff: AibridgeHandoff) {
+  return (handoff.status ?? "open") !== "completed";
+}
+
 function normalizeBridgeSetup(setup: BridgeSetupMetadata | undefined) {
   if (!setup) {
     return undefined;
@@ -868,7 +878,10 @@ function normalizeStatus(snapshot: AibridgeBridgeSnapshot, accessOptions: Bridge
     },
     tasks: snapshot.tasks.slice().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     logs: snapshot.logs.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
-    handoffs: snapshot.handoffs.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    handoffs: snapshot.handoffs
+      .filter((handoff) => isOpenHandoff(handoff))
+      .slice()
+      .sort((left, right) => (right.updatedAt ?? right.timestamp).localeCompare(left.updatedAt ?? left.timestamp)),
     decisions: snapshot.decisions.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
     conventions: snapshot.conventions.slice().sort((left, right) => left.addedAt.localeCompare(right.addedAt)),
     messages: snapshot.messages.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
@@ -1305,13 +1318,21 @@ export async function acknowledgeMessage(rootPath: string, idOrPrefix: string) {
   const root = await ensureBridge(rootPath);
   return withBridgeWriteLock(root, async (lockedRoot) => {
     const issues: string[] = [];
+    const snapshot = await loadBridgeSnapshot(lockedRoot);
     const { filePath, message } = await readMessage(lockedRoot, idOrPrefix, issues);
+    assertAgentExists(snapshot.bridge, message.toAgentId);
     const updated = messageSchema.parse({
       ...message,
       acknowledged: true,
     });
 
     await writeJsonAtomic(filePath, updated);
+    if (message.toAgentId) {
+      await createMutationLog(lockedRoot, message.toAgentId, "message-ack", `Acknowledged message from ${message.fromAgentId}`, {
+        messageId: updated.id,
+        fromAgentId: message.fromAgentId,
+      });
+    }
     await regenerateContextUnlocked(lockedRoot);
     return updated;
   });
@@ -1321,6 +1342,10 @@ export async function listHandoffs(rootPath: string, filters: { agentId?: string
   const root = await ensureBridge(rootPath);
   const snapshot = await loadBridgeSnapshot(root);
   return snapshot.handoffs.filter((handoff) => {
+    if (!isOpenHandoff(handoff)) {
+      return false;
+    }
+
     if (!filters.agentId) {
       return true;
     }
@@ -1353,6 +1378,8 @@ export async function createHandoff(rootPath: string, payload: HandoffCreatePayl
       toAgentId: payload.toAgentId,
       description: payload.description.trim(),
       timestamp: new Date().toISOString(),
+      status: "open",
+      updatedAt: new Date().toISOString(),
       relatedTaskIds: payload.relatedTaskIds?.length ? payload.relatedTaskIds : undefined,
     });
 
@@ -1362,6 +1389,40 @@ export async function createHandoff(rootPath: string, payload: HandoffCreatePayl
     });
     await regenerateContextUnlocked(lockedRoot);
     return handoff;
+  });
+}
+
+export async function updateHandoffStatus(
+  rootPath: string,
+  idOrPrefix: string,
+  payload: HandoffMutationPayload,
+) {
+  const root = await ensureBridge(rootPath);
+  return withBridgeWriteLock(root, async (lockedRoot) => {
+    const issues: string[] = [];
+    const { filePath, handoff } = await readHandoff(lockedRoot, idOrPrefix, issues);
+    const snapshot = await loadBridgeSnapshot(lockedRoot);
+    assertAgentExists(snapshot.bridge, payload.agentId);
+
+    const now = new Date().toISOString();
+    const updated = handoffSchema.parse({
+      ...handoff,
+      status: payload.status,
+      updatedAt: now,
+      acceptedAt: payload.status === "accepted" ? handoff.acceptedAt ?? now : handoff.acceptedAt,
+      completedAt: payload.status === "completed" ? now : undefined,
+      resolvedByAgentId: payload.status === "completed" ? payload.agentId ?? handoff.resolvedByAgentId : undefined,
+    });
+
+    await writeJsonAtomic(filePath, updated);
+    if (payload.agentId) {
+      await createMutationLog(lockedRoot, payload.agentId, "handoff-update", `Marked handoff ${payload.status}: ${updated.description}`, {
+        handoffId: updated.id,
+        status: updated.status,
+      });
+    }
+    await regenerateContextUnlocked(lockedRoot);
+    return updated;
   });
 }
 
@@ -2473,6 +2534,14 @@ export function parseDecisionStatus(value: string) {
   }
 
   return value as NonNullable<AibridgeDecision["status"]>;
+}
+
+export function parseHandoffStatus(value: string) {
+  if (!handoffStatuses.includes(value as (typeof handoffStatuses)[number])) {
+    throw new BridgeRuntimeError("VALIDATION_ERROR", `Invalid handoff status: ${value}`);
+  }
+
+  return value as AibridgeHandoff["status"];
 }
 
 export function parseReleaseStatus(value: string) {

@@ -10,6 +10,7 @@ import type {
   AibridgeRelease,
   AibridgeTask,
 } from "../../src/lib/aibridge/types";
+import { deriveAgentSession } from "./agent-sessions";
 
 const PRIORITY_ORDER: Record<AibridgeTask["priority"], number> = {
   high: 0,
@@ -92,7 +93,7 @@ function renderSuggestedActions(snapshot: AibridgeBridgeSnapshot) {
       });
 
     const handoffsToAgent = snapshot.handoffs
-      .filter((handoff) => handoff.toAgentId === agent.id)
+      .filter((handoff) => isOpenHandoff(handoff) && handoff.toAgentId === agent.id)
       .sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
 
     const unreadMessages = snapshot.messages
@@ -148,6 +149,10 @@ function renderSessionSummary(session: AibridgeAgentSession) {
   return `- **${session.agentId}** (${session.toolKind}) - ${session.status}${session.recovery?.reason ? `: ${session.recovery.reason}` : ""}`;
 }
 
+function isOpenHandoff(handoff: AibridgeHandoff) {
+  return (handoff.status ?? "open") !== "completed";
+}
+
 function renderContext(snapshot: AibridgeBridgeSnapshot, limits: RenderLimits, generatedAt: string) {
   const taskCounts = {
     pending: snapshot.tasks.filter((task) => task.status === "pending").length,
@@ -176,6 +181,7 @@ function renderContext(snapshot: AibridgeBridgeSnapshot, limits: RenderLimits, g
     .sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
 
   const openHandoffs = snapshot.handoffs
+    .filter((handoff) => isOpenHandoff(handoff))
     .slice()
     .sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
 
@@ -202,6 +208,7 @@ function renderContext(snapshot: AibridgeBridgeSnapshot, limits: RenderLimits, g
     .filter((announcement) => announcement.status === "published" || announcement.status === "pinned")
     .sort((left, right) => compareDescByDate(left, right, (item) => item.publishedAt ?? item.updatedAt));
   const activeSessions = snapshot.sessions
+    .map((session) => deriveAgentSession(snapshot, session, generatedAt))
     .slice()
     .sort((left, right) => right.launchedAt.localeCompare(left.launchedAt));
 
@@ -446,7 +453,7 @@ export function collectAgentActivity(logs: AibridgeLogEntry[], agent: AibridgeAg
 
 export function collectAgentHandoffs(handoffs: AibridgeHandoff[], agent: AibridgeAgent) {
   return handoffs
-    .filter((handoff) => handoff.fromAgentId === agent.id || handoff.toAgentId === agent.id)
+    .filter((handoff) => isOpenHandoff(handoff) && (handoff.fromAgentId === agent.id || handoff.toAgentId === agent.id))
     .sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
 }
 

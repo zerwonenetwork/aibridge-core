@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 // aibridge/cli/src/main.ts
-import { promises as fs7 } from "fs";
+import { promises as fs8 } from "fs";
+import { spawn as spawn2 } from "child_process";
 import os2 from "os";
-import path7 from "path";
+import path8 from "path";
 import readline from "readline/promises";
 
 // aibridge/runtime/store.ts
@@ -12,307 +13,6 @@ import { promises as fs3 } from "fs";
 import { existsSync } from "fs";
 import path3 from "path";
 import { fileURLToPath } from "url";
-
-// aibridge/runtime/context.ts
-var PRIORITY_ORDER = {
-  high: 0,
-  medium: 1,
-  low: 2
-};
-var SEVERITY_ORDER = {
-  critical: 0,
-  warning: 1,
-  info: 2
-};
-function compareDescByDate(left, right, getValue) {
-  const timeDelta = getValue(right).localeCompare(getValue(left));
-  return timeDelta !== 0 ? timeDelta : left.id.localeCompare(right.id);
-}
-function estimateTokens(markdown) {
-  const words = markdown.trim().split(/\s+/).filter(Boolean).length;
-  return Math.ceil(words * 1.35);
-}
-function formatTaskAssignment(task) {
-  return task.agentId ?? "unassigned";
-}
-function renderLimitedList(items, remainingLabel) {
-  if (items.length === 0) {
-    return "_(none)_";
-  }
-  const rendered = [...items];
-  if (remainingLabel) {
-    rendered.push(remainingLabel);
-  }
-  return rendered.join("\n");
-}
-function truncateSummary(summary, max) {
-  if (!max || summary.length <= max) {
-    return summary;
-  }
-  return `${summary.slice(0, Math.max(0, max - 1)).trimEnd()}\u2026`;
-}
-function renderSuggestedActions(snapshot) {
-  const sections = snapshot.bridge.agents.map((agent) => {
-    const suggestions = [];
-    const assignedPending = snapshot.tasks.filter((task) => task.agentId === agent.id && task.status === "pending").sort((left, right) => {
-      const priorityDelta = PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
-      if (priorityDelta !== 0) {
-        return priorityDelta;
-      }
-      const createdDelta = left.createdAt.localeCompare(right.createdAt);
-      return createdDelta !== 0 ? createdDelta : left.id.localeCompare(right.id);
-    });
-    const handoffsToAgent = snapshot.handoffs.filter((handoff) => handoff.toAgentId === agent.id).sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
-    const unreadMessages = snapshot.messages.filter((message) => !message.acknowledged && (!message.toAgentId || message.toAgentId === agent.id)).sort((left, right) => {
-      const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
-      if (severityDelta !== 0) {
-        return severityDelta;
-      }
-      return compareDescByDate(left, right, (item) => item.timestamp);
-    });
-    const inProgress = snapshot.tasks.filter((task) => task.agentId === agent.id && task.status === "in_progress").sort((left, right) => compareDescByDate(left, right, (item) => item.updatedAt));
-    assignedPending.slice(0, 1).forEach((task) => {
-      suggestions.push(`- Start working on: ${task.title}`);
-    });
-    handoffsToAgent.slice(0, 1).forEach((handoff) => {
-      suggestions.push(`- Review handoff from ${handoff.fromAgentId}: ${handoff.description}`);
-    });
-    unreadMessages.slice(0, 1).forEach((message) => {
-      suggestions.push(`- Read message from ${message.fromAgentId}`);
-    });
-    if (suggestions.length === 0 && inProgress.length > 0) {
-      suggestions.push(`- Continue working on: ${inProgress[0].title}`);
-    }
-    if (suggestions.length === 0) {
-      suggestions.push("- No pending work - available for new assignments");
-    }
-    return [`### ${agent.name}`, suggestions.slice(0, 3).join("\n")].join("\n");
-  });
-  return sections.length > 0 ? sections.join("\n\n") : "_(none)_";
-}
-function renderReleaseSummary(release) {
-  return `- **${release.version}** - ${release.title}: ${truncateSummary(release.summary, 120)}`;
-}
-function renderAnnouncementSummary(announcement) {
-  return `- [${announcement.severity}] **${announcement.title}** (${announcement.audience})`;
-}
-function renderSessionSummary(session) {
-  return `- **${session.agentId}** (${session.toolKind}) - ${session.status}${session.recovery?.reason ? `: ${session.recovery.reason}` : ""}`;
-}
-function renderContext(snapshot, limits, generatedAt) {
-  const taskCounts = {
-    pending: snapshot.tasks.filter((task) => task.status === "pending").length,
-    in_progress: snapshot.tasks.filter((task) => task.status === "in_progress").length,
-    done: snapshot.tasks.filter((task) => task.status === "done").length
-  };
-  const inProgressTasks = snapshot.tasks.filter((task) => task.status === "in_progress").sort((left, right) => compareDescByDate(left, right, (item) => item.updatedAt));
-  const pendingTasks = snapshot.tasks.filter((task) => task.status === "pending").sort((left, right) => {
-    const priorityDelta = PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
-    if (priorityDelta !== 0) {
-      return priorityDelta;
-    }
-    const createdDelta = left.createdAt.localeCompare(right.createdAt);
-    return createdDelta !== 0 ? createdDelta : left.id.localeCompare(right.id);
-  });
-  const recentActivity = snapshot.logs.slice().sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
-  const openHandoffs = snapshot.handoffs.slice().sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
-  const unreadMessages = snapshot.messages.filter((message) => !message.acknowledged).sort((left, right) => {
-    const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
-    if (severityDelta !== 0) {
-      return severityDelta;
-    }
-    return compareDescByDate(left, right, (item) => item.timestamp);
-  });
-  const recentDecisions = snapshot.decisions.filter((decision) => !decision.status || decision.status === "accepted").sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
-  const publishedReleases = snapshot.releases.filter((release) => release.status === "published").sort((left, right) => compareDescByDate(left, right, (item) => item.publishedAt ?? item.updatedAt));
-  const activeAnnouncements = snapshot.announcements.filter((announcement) => announcement.status === "published" || announcement.status === "pinned").sort((left, right) => compareDescByDate(left, right, (item) => item.publishedAt ?? item.updatedAt));
-  const activeSessions = snapshot.sessions.slice().sort((left, right) => right.launchedAt.localeCompare(left.launchedAt));
-  const conventions = snapshot.conventions.slice().sort((left, right) => {
-    const addedDelta = left.addedAt.localeCompare(right.addedAt);
-    return addedDelta !== 0 ? addedDelta : left.id.localeCompare(right.id);
-  });
-  const inProgressVisible = inProgressTasks.slice(0, limits.inProgressTasks);
-  const pendingVisible = pendingTasks.slice(0, limits.pendingTasks);
-  const activityVisible = recentActivity.slice(0, limits.recentActivity);
-  const handoffVisible = openHandoffs.slice(0, limits.handoffs);
-  const messageVisible = unreadMessages.slice(0, limits.unreadMessages);
-  const decisionVisible = recentDecisions.slice(0, limits.recentDecisions);
-  const releaseVisible = publishedReleases.slice(0, limits.publishedReleases);
-  const announcementVisible = activeAnnouncements.slice(0, limits.announcements);
-  const activeAgentsRows = snapshot.bridge.agents.length ? snapshot.bridge.agents.map((agent) => `| ${agent.name} | ${agent.kind} | ${agent.configPath} |`).join("\n") : "| _(none)_ | _(none)_ | _(none)_ |";
-  const sections = [
-    `# Project Context - ${snapshot.bridge.projectName}`,
-    "",
-    "> Auto-generated by AiBridge. Do not edit manually.",
-    `> Last updated: ${generatedAt}`,
-    "",
-    "## Project",
-    "",
-    `- **Name**: ${snapshot.bridge.projectName}`,
-    `- **Repo**: ${snapshot.repoPath}`,
-    `- **Schema version**: ${snapshot.bridge.schemaVersion}`,
-    `- **Last sync**: ${snapshot.lastSyncAt}`,
-    ...snapshot.bridge.setup ? [
-      "",
-      "## Setup Brief",
-      "",
-      `- **Template**: ${snapshot.bridge.setup.templateId}`,
-      `- **Goal**: ${snapshot.bridge.setup.summary}`,
-      `- **Primary deliverable**: ${snapshot.bridge.setup.primaryDeliverable}`,
-      `- **Preferred stack**: ${snapshot.bridge.setup.preferredStack.join(", ") || "(not specified)"}`,
-      `- **Priorities**: ${snapshot.bridge.setup.priorities.join(", ") || "(not specified)"}`,
-      `- **Agent mode**: ${snapshot.bridge.setup.agentMode}`,
-      snapshot.bridge.setup.hardConstraints.length > 0 ? `- **Constraints**: ${snapshot.bridge.setup.hardConstraints.join("; ")}` : "- **Constraints**: _(none)_"
-    ] : [],
-    ...activeSessions.length > 0 ? [
-      "",
-      "## Agent Sessions",
-      "",
-      ...activeSessions.slice(0, 5).map(renderSessionSummary)
-    ] : [],
-    "",
-    "## Active Agents",
-    "",
-    "| Agent | Kind | Config |",
-    "|-------|------|--------|",
-    activeAgentsRows,
-    "",
-    "## Task Summary",
-    "",
-    "| Status | Count |",
-    "|--------|-------|",
-    `| Pending | ${taskCounts.pending} |`,
-    `| In Progress | ${taskCounts.in_progress} |`,
-    `| Done | ${taskCounts.done} |`,
-    "",
-    "### In-Progress Tasks",
-    "",
-    renderLimitedList(
-      inProgressVisible.map(
-        (task) => `- **${task.title}** - assigned to ${formatTaskAssignment(task)} (priority: ${task.priority})`
-      ),
-      inProgressTasks.length > inProgressVisible.length ? `+${inProgressTasks.length - inProgressVisible.length} more in-progress tasks` : void 0
-    ),
-    "",
-    "### Pending Tasks",
-    "",
-    renderLimitedList(
-      pendingVisible.map(
-        (task) => `- **${task.title}** - assigned to ${formatTaskAssignment(task)} (priority: ${task.priority})`
-      ),
-      pendingTasks.length > pendingVisible.length ? `+${pendingTasks.length - pendingVisible.length} more pending tasks` : void 0
-    ),
-    "",
-    "## Recent Activity",
-    "",
-    renderLimitedList(
-      activityVisible.map(
-        (entry) => `- [${entry.timestamp}] **${entry.agentId}** ${entry.action}: ${entry.description}`
-      ),
-      recentActivity.length > activityVisible.length ? `+${recentActivity.length - activityVisible.length} more entries` : void 0
-    ),
-    "",
-    "## Open Handoffs",
-    "",
-    renderLimitedList(
-      handoffVisible.map(
-        (handoff) => `- **${handoff.fromAgentId} -> ${handoff.toAgentId}**: ${handoff.description} (${handoff.timestamp})`
-      ),
-      openHandoffs.length > handoffVisible.length ? `+${openHandoffs.length - handoffVisible.length} more handoffs` : void 0
-    ),
-    "",
-    "## Unread Messages",
-    "",
-    renderLimitedList(
-      messageVisible.map(
-        (message) => `- [${message.severity}] **${message.fromAgentId}** -> ${message.toAgentId ?? "all"}: ${message.content}`
-      ),
-      unreadMessages.length > messageVisible.length ? `+${unreadMessages.length - messageVisible.length} more unread messages` : void 0
-    ),
-    "",
-    "## Recent Decisions",
-    "",
-    renderLimitedList(
-      decisionVisible.map(
-        (decision) => `- **${decision.title}**: ${truncateSummary(decision.summary, limits.decisionSummaryLimit)}`
-      ),
-      recentDecisions.length > decisionVisible.length ? `+${recentDecisions.length - decisionVisible.length} more decisions` : void 0
-    ),
-    "",
-    "## Releases",
-    "",
-    renderLimitedList(
-      releaseVisible.map(renderReleaseSummary),
-      publishedReleases.length > releaseVisible.length ? `+${publishedReleases.length - releaseVisible.length} more published releases` : void 0
-    ),
-    "",
-    "## Announcements",
-    "",
-    renderLimitedList(
-      announcementVisible.map(renderAnnouncementSummary),
-      activeAnnouncements.length > announcementVisible.length ? `+${activeAnnouncements.length - announcementVisible.length} more announcements` : void 0
-    ),
-    "",
-    "## Active Conventions",
-    "",
-    conventions.length > 0 ? conventions.map((convention) => `- ${convention.rule}`).join("\n") : "_(none)_",
-    ...snapshot.bridge.setup ? [
-      "",
-      "## Definition Of Done",
-      "",
-      renderLimitedList(snapshot.bridge.setup.definitionOfDone.map((item) => `- ${item}`)),
-      "",
-      "## Setup Workflow",
-      "",
-      snapshot.bridge.setup.workflowSummary
-    ] : []
-  ];
-  if (limits.includeSuggestions) {
-    sections.push("", "## Suggested Next Actions", "", renderSuggestedActions(snapshot));
-  }
-  return `${sections.join("\n").trim()}
-`;
-}
-function compileContextMarkdown(snapshot, options = {}) {
-  const budget = options.budget ?? 2e3;
-  const generatedAt = options.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
-  const limits = {
-    inProgressTasks: 10,
-    pendingTasks: 10,
-    recentActivity: 10,
-    handoffs: 5,
-    unreadMessages: 5,
-    recentDecisions: 5,
-    publishedReleases: 3,
-    announcements: 5,
-    includeSuggestions: true
-  };
-  let markdown = renderContext(snapshot, limits, generatedAt);
-  if (estimateTokens(markdown) <= budget) {
-    return markdown;
-  }
-  limits.recentActivity = 5;
-  markdown = renderContext(snapshot, limits, generatedAt);
-  if (estimateTokens(markdown) <= budget) {
-    return markdown;
-  }
-  limits.pendingTasks = 5;
-  markdown = renderContext(snapshot, limits, generatedAt);
-  if (estimateTokens(markdown) <= budget) {
-    return markdown;
-  }
-  limits.decisionSummaryLimit = 80;
-  markdown = renderContext(snapshot, limits, generatedAt);
-  if (estimateTokens(markdown) <= budget) {
-    return markdown;
-  }
-  limits.includeSuggestions = false;
-  return renderContext(snapshot, limits, generatedAt);
-}
-function parseContextTimestamp(markdown) {
-  const match = markdown.match(/^> Last updated: (.+)$/m);
-  return match?.[1]?.trim();
-}
 
 // aibridge/runtime/adapters.ts
 import { promises as fs } from "fs";
@@ -556,6 +256,7 @@ async function runCodexNonChat(repoRoot, prompt) {
 // aibridge/runtime/agent-sessions.ts
 var ACTIVE_STALE_MS = 10 * 60 * 1e3;
 var PENDING_STALE_MS = 5 * 60 * 1e3;
+var CONTEXT_STALE_GRACE_MS = 90 * 1e3;
 function pickLatestTimestamp(...values) {
   return values.filter(Boolean).sort((left, right) => String(right).localeCompare(String(left)))[0];
 }
@@ -569,7 +270,7 @@ function unreadMessagesForAgent(snapshot, agentId) {
   return snapshot.messages.filter((message) => !message.acknowledged && (!message.toAgentId || message.toAgentId === agentId)).sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 }
 function openHandoffsForAgent(snapshot, agentId) {
-  return snapshot.handoffs.filter((handoff) => handoff.toAgentId === agentId).sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  return snapshot.handoffs.filter((handoff) => (handoff.status ?? "open") !== "completed" && handoff.toAgentId === agentId).sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 }
 function summarizeRole(agent, snapshot) {
   const role = snapshot.bridge.setup?.roles.find((item) => item.agentKind === agent.kind || item.key === agent.id);
@@ -700,7 +401,7 @@ function deriveAgentSession(snapshot, session, now = (/* @__PURE__ */ new Date()
   } else if ((session.status === "stopped" || session.status === "failed") && currentTaskIds.length > 0) {
     reason = session.recovery?.reason ?? (session.status === "stopped" ? "Agent stopped while assigned work remains." : "Agent session failed while assigned work remains.");
   }
-  if ((session.status === "active" || session.status === "pending") && session.acknowledgedContextTimestamp && snapshot.lastSyncAt > session.acknowledgedContextTimestamp) {
+  if ((session.status === "active" || session.status === "pending") && session.acknowledgedContextTimestamp && snapshot.lastSyncAt > session.acknowledgedContextTimestamp && nowMs - toMillis(snapshot.lastSyncAt) > CONTEXT_STALE_GRACE_MS) {
     status = status === "active" ? "stale" : status;
     reason = "Context changed after this agent acknowledged the workspace.";
   }
@@ -730,6 +431,310 @@ function sessionNotice(session) {
   return `${session.agentId} (${session.toolKind}) \u2014 ${session.recovery.reason}`;
 }
 
+// aibridge/runtime/context.ts
+var PRIORITY_ORDER = {
+  high: 0,
+  medium: 1,
+  low: 2
+};
+var SEVERITY_ORDER = {
+  critical: 0,
+  warning: 1,
+  info: 2
+};
+function compareDescByDate(left, right, getValue) {
+  const timeDelta = getValue(right).localeCompare(getValue(left));
+  return timeDelta !== 0 ? timeDelta : left.id.localeCompare(right.id);
+}
+function estimateTokens(markdown) {
+  const words = markdown.trim().split(/\s+/).filter(Boolean).length;
+  return Math.ceil(words * 1.35);
+}
+function formatTaskAssignment(task) {
+  return task.agentId ?? "unassigned";
+}
+function renderLimitedList(items, remainingLabel) {
+  if (items.length === 0) {
+    return "_(none)_";
+  }
+  const rendered = [...items];
+  if (remainingLabel) {
+    rendered.push(remainingLabel);
+  }
+  return rendered.join("\n");
+}
+function truncateSummary(summary, max) {
+  if (!max || summary.length <= max) {
+    return summary;
+  }
+  return `${summary.slice(0, Math.max(0, max - 1)).trimEnd()}\u2026`;
+}
+function renderSuggestedActions(snapshot) {
+  const sections = snapshot.bridge.agents.map((agent) => {
+    const suggestions = [];
+    const assignedPending = snapshot.tasks.filter((task) => task.agentId === agent.id && task.status === "pending").sort((left, right) => {
+      const priorityDelta = PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
+      if (priorityDelta !== 0) {
+        return priorityDelta;
+      }
+      const createdDelta = left.createdAt.localeCompare(right.createdAt);
+      return createdDelta !== 0 ? createdDelta : left.id.localeCompare(right.id);
+    });
+    const handoffsToAgent = snapshot.handoffs.filter((handoff) => isOpenHandoff(handoff) && handoff.toAgentId === agent.id).sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
+    const unreadMessages = snapshot.messages.filter((message) => !message.acknowledged && (!message.toAgentId || message.toAgentId === agent.id)).sort((left, right) => {
+      const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
+      if (severityDelta !== 0) {
+        return severityDelta;
+      }
+      return compareDescByDate(left, right, (item) => item.timestamp);
+    });
+    const inProgress = snapshot.tasks.filter((task) => task.agentId === agent.id && task.status === "in_progress").sort((left, right) => compareDescByDate(left, right, (item) => item.updatedAt));
+    assignedPending.slice(0, 1).forEach((task) => {
+      suggestions.push(`- Start working on: ${task.title}`);
+    });
+    handoffsToAgent.slice(0, 1).forEach((handoff) => {
+      suggestions.push(`- Review handoff from ${handoff.fromAgentId}: ${handoff.description}`);
+    });
+    unreadMessages.slice(0, 1).forEach((message) => {
+      suggestions.push(`- Read message from ${message.fromAgentId}`);
+    });
+    if (suggestions.length === 0 && inProgress.length > 0) {
+      suggestions.push(`- Continue working on: ${inProgress[0].title}`);
+    }
+    if (suggestions.length === 0) {
+      suggestions.push("- No pending work - available for new assignments");
+    }
+    return [`### ${agent.name}`, suggestions.slice(0, 3).join("\n")].join("\n");
+  });
+  return sections.length > 0 ? sections.join("\n\n") : "_(none)_";
+}
+function renderReleaseSummary(release) {
+  return `- **${release.version}** - ${release.title}: ${truncateSummary(release.summary, 120)}`;
+}
+function renderAnnouncementSummary(announcement) {
+  return `- [${announcement.severity}] **${announcement.title}** (${announcement.audience})`;
+}
+function renderSessionSummary(session) {
+  return `- **${session.agentId}** (${session.toolKind}) - ${session.status}${session.recovery?.reason ? `: ${session.recovery.reason}` : ""}`;
+}
+function isOpenHandoff(handoff) {
+  return (handoff.status ?? "open") !== "completed";
+}
+function renderContext(snapshot, limits, generatedAt) {
+  const taskCounts = {
+    pending: snapshot.tasks.filter((task) => task.status === "pending").length,
+    in_progress: snapshot.tasks.filter((task) => task.status === "in_progress").length,
+    done: snapshot.tasks.filter((task) => task.status === "done").length
+  };
+  const inProgressTasks = snapshot.tasks.filter((task) => task.status === "in_progress").sort((left, right) => compareDescByDate(left, right, (item) => item.updatedAt));
+  const pendingTasks = snapshot.tasks.filter((task) => task.status === "pending").sort((left, right) => {
+    const priorityDelta = PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    const createdDelta = left.createdAt.localeCompare(right.createdAt);
+    return createdDelta !== 0 ? createdDelta : left.id.localeCompare(right.id);
+  });
+  const recentActivity = snapshot.logs.slice().sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
+  const openHandoffs = snapshot.handoffs.filter((handoff) => isOpenHandoff(handoff)).slice().sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
+  const unreadMessages = snapshot.messages.filter((message) => !message.acknowledged).sort((left, right) => {
+    const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    return compareDescByDate(left, right, (item) => item.timestamp);
+  });
+  const recentDecisions = snapshot.decisions.filter((decision) => !decision.status || decision.status === "accepted").sort((left, right) => compareDescByDate(left, right, (item) => item.timestamp));
+  const publishedReleases = snapshot.releases.filter((release) => release.status === "published").sort((left, right) => compareDescByDate(left, right, (item) => item.publishedAt ?? item.updatedAt));
+  const activeAnnouncements = snapshot.announcements.filter((announcement) => announcement.status === "published" || announcement.status === "pinned").sort((left, right) => compareDescByDate(left, right, (item) => item.publishedAt ?? item.updatedAt));
+  const activeSessions = snapshot.sessions.map((session) => deriveAgentSession(snapshot, session, generatedAt)).slice().sort((left, right) => right.launchedAt.localeCompare(left.launchedAt));
+  const conventions = snapshot.conventions.slice().sort((left, right) => {
+    const addedDelta = left.addedAt.localeCompare(right.addedAt);
+    return addedDelta !== 0 ? addedDelta : left.id.localeCompare(right.id);
+  });
+  const inProgressVisible = inProgressTasks.slice(0, limits.inProgressTasks);
+  const pendingVisible = pendingTasks.slice(0, limits.pendingTasks);
+  const activityVisible = recentActivity.slice(0, limits.recentActivity);
+  const handoffVisible = openHandoffs.slice(0, limits.handoffs);
+  const messageVisible = unreadMessages.slice(0, limits.unreadMessages);
+  const decisionVisible = recentDecisions.slice(0, limits.recentDecisions);
+  const releaseVisible = publishedReleases.slice(0, limits.publishedReleases);
+  const announcementVisible = activeAnnouncements.slice(0, limits.announcements);
+  const activeAgentsRows = snapshot.bridge.agents.length ? snapshot.bridge.agents.map((agent) => `| ${agent.name} | ${agent.kind} | ${agent.configPath} |`).join("\n") : "| _(none)_ | _(none)_ | _(none)_ |";
+  const sections = [
+    `# Project Context - ${snapshot.bridge.projectName}`,
+    "",
+    "> Auto-generated by AiBridge. Do not edit manually.",
+    `> Last updated: ${generatedAt}`,
+    "",
+    "## Project",
+    "",
+    `- **Name**: ${snapshot.bridge.projectName}`,
+    `- **Repo**: ${snapshot.repoPath}`,
+    `- **Schema version**: ${snapshot.bridge.schemaVersion}`,
+    `- **Last sync**: ${snapshot.lastSyncAt}`,
+    ...snapshot.bridge.setup ? [
+      "",
+      "## Setup Brief",
+      "",
+      `- **Template**: ${snapshot.bridge.setup.templateId}`,
+      `- **Goal**: ${snapshot.bridge.setup.summary}`,
+      `- **Primary deliverable**: ${snapshot.bridge.setup.primaryDeliverable}`,
+      `- **Preferred stack**: ${snapshot.bridge.setup.preferredStack.join(", ") || "(not specified)"}`,
+      `- **Priorities**: ${snapshot.bridge.setup.priorities.join(", ") || "(not specified)"}`,
+      `- **Agent mode**: ${snapshot.bridge.setup.agentMode}`,
+      snapshot.bridge.setup.hardConstraints.length > 0 ? `- **Constraints**: ${snapshot.bridge.setup.hardConstraints.join("; ")}` : "- **Constraints**: _(none)_"
+    ] : [],
+    ...activeSessions.length > 0 ? [
+      "",
+      "## Agent Sessions",
+      "",
+      ...activeSessions.slice(0, 5).map(renderSessionSummary)
+    ] : [],
+    "",
+    "## Active Agents",
+    "",
+    "| Agent | Kind | Config |",
+    "|-------|------|--------|",
+    activeAgentsRows,
+    "",
+    "## Task Summary",
+    "",
+    "| Status | Count |",
+    "|--------|-------|",
+    `| Pending | ${taskCounts.pending} |`,
+    `| In Progress | ${taskCounts.in_progress} |`,
+    `| Done | ${taskCounts.done} |`,
+    "",
+    "### In-Progress Tasks",
+    "",
+    renderLimitedList(
+      inProgressVisible.map(
+        (task) => `- **${task.title}** - assigned to ${formatTaskAssignment(task)} (priority: ${task.priority})`
+      ),
+      inProgressTasks.length > inProgressVisible.length ? `+${inProgressTasks.length - inProgressVisible.length} more in-progress tasks` : void 0
+    ),
+    "",
+    "### Pending Tasks",
+    "",
+    renderLimitedList(
+      pendingVisible.map(
+        (task) => `- **${task.title}** - assigned to ${formatTaskAssignment(task)} (priority: ${task.priority})`
+      ),
+      pendingTasks.length > pendingVisible.length ? `+${pendingTasks.length - pendingVisible.length} more pending tasks` : void 0
+    ),
+    "",
+    "## Recent Activity",
+    "",
+    renderLimitedList(
+      activityVisible.map(
+        (entry) => `- [${entry.timestamp}] **${entry.agentId}** ${entry.action}: ${entry.description}`
+      ),
+      recentActivity.length > activityVisible.length ? `+${recentActivity.length - activityVisible.length} more entries` : void 0
+    ),
+    "",
+    "## Open Handoffs",
+    "",
+    renderLimitedList(
+      handoffVisible.map(
+        (handoff) => `- **${handoff.fromAgentId} -> ${handoff.toAgentId}**: ${handoff.description} (${handoff.timestamp})`
+      ),
+      openHandoffs.length > handoffVisible.length ? `+${openHandoffs.length - handoffVisible.length} more handoffs` : void 0
+    ),
+    "",
+    "## Unread Messages",
+    "",
+    renderLimitedList(
+      messageVisible.map(
+        (message) => `- [${message.severity}] **${message.fromAgentId}** -> ${message.toAgentId ?? "all"}: ${message.content}`
+      ),
+      unreadMessages.length > messageVisible.length ? `+${unreadMessages.length - messageVisible.length} more unread messages` : void 0
+    ),
+    "",
+    "## Recent Decisions",
+    "",
+    renderLimitedList(
+      decisionVisible.map(
+        (decision) => `- **${decision.title}**: ${truncateSummary(decision.summary, limits.decisionSummaryLimit)}`
+      ),
+      recentDecisions.length > decisionVisible.length ? `+${recentDecisions.length - decisionVisible.length} more decisions` : void 0
+    ),
+    "",
+    "## Releases",
+    "",
+    renderLimitedList(
+      releaseVisible.map(renderReleaseSummary),
+      publishedReleases.length > releaseVisible.length ? `+${publishedReleases.length - releaseVisible.length} more published releases` : void 0
+    ),
+    "",
+    "## Announcements",
+    "",
+    renderLimitedList(
+      announcementVisible.map(renderAnnouncementSummary),
+      activeAnnouncements.length > announcementVisible.length ? `+${activeAnnouncements.length - announcementVisible.length} more announcements` : void 0
+    ),
+    "",
+    "## Active Conventions",
+    "",
+    conventions.length > 0 ? conventions.map((convention) => `- ${convention.rule}`).join("\n") : "_(none)_",
+    ...snapshot.bridge.setup ? [
+      "",
+      "## Definition Of Done",
+      "",
+      renderLimitedList(snapshot.bridge.setup.definitionOfDone.map((item) => `- ${item}`)),
+      "",
+      "## Setup Workflow",
+      "",
+      snapshot.bridge.setup.workflowSummary
+    ] : []
+  ];
+  if (limits.includeSuggestions) {
+    sections.push("", "## Suggested Next Actions", "", renderSuggestedActions(snapshot));
+  }
+  return `${sections.join("\n").trim()}
+`;
+}
+function compileContextMarkdown(snapshot, options = {}) {
+  const budget = options.budget ?? 2e3;
+  const generatedAt = options.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  const limits = {
+    inProgressTasks: 10,
+    pendingTasks: 10,
+    recentActivity: 10,
+    handoffs: 5,
+    unreadMessages: 5,
+    recentDecisions: 5,
+    publishedReleases: 3,
+    announcements: 5,
+    includeSuggestions: true
+  };
+  let markdown = renderContext(snapshot, limits, generatedAt);
+  if (estimateTokens(markdown) <= budget) {
+    return markdown;
+  }
+  limits.recentActivity = 5;
+  markdown = renderContext(snapshot, limits, generatedAt);
+  if (estimateTokens(markdown) <= budget) {
+    return markdown;
+  }
+  limits.pendingTasks = 5;
+  markdown = renderContext(snapshot, limits, generatedAt);
+  if (estimateTokens(markdown) <= budget) {
+    return markdown;
+  }
+  limits.decisionSummaryLimit = 80;
+  markdown = renderContext(snapshot, limits, generatedAt);
+  if (estimateTokens(markdown) <= budget) {
+    return markdown;
+  }
+  limits.includeSuggestions = false;
+  return renderContext(snapshot, limits, generatedAt);
+}
+function parseContextTimestamp(markdown) {
+  const match = markdown.match(/^> Last updated: (.+)$/m);
+  return match?.[1]?.trim();
+}
+
 // aibridge/runtime/schema.ts
 import { z } from "zod";
 var agentKinds = [
@@ -745,6 +750,7 @@ var taskStatuses = ["pending", "in_progress", "done"];
 var priorities = ["low", "medium", "high"];
 var messageSeverities = ["info", "warning", "critical"];
 var decisionStatuses = ["proposed", "accepted", "superseded"];
+var handoffStatuses = ["open", "accepted", "completed"];
 var releaseStatuses = ["draft", "published", "archived"];
 var announcementStatuses = ["draft", "published", "pinned", "archived"];
 var announcementAudiences = ["all", "admin", "internal"];
@@ -831,6 +837,11 @@ var handoffSchema = z.object({
   toAgentId: z.string().min(1),
   description: z.string().min(1),
   timestamp: z.string().datetime(),
+  status: z.enum(handoffStatuses).default("open"),
+  updatedAt: z.string().datetime().optional(),
+  acceptedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  resolvedByAgentId: z.string().min(1).optional(),
   relatedTaskIds: z.array(z.string().min(1)).optional()
 });
 var decisionSchema = z.object({
@@ -1520,6 +1531,9 @@ function getRepoPath(root) {
 function normalizeList(values) {
   return (values ?? []).map((value) => value.trim()).filter(Boolean);
 }
+function isOpenHandoff2(handoff) {
+  return (handoff.status ?? "open") !== "completed";
+}
 function normalizeBridgeSetup(setup) {
   if (!setup) {
     return void 0;
@@ -1617,7 +1631,7 @@ function normalizeStatus(snapshot, accessOptions = {}) {
     },
     tasks: snapshot.tasks.slice().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     logs: snapshot.logs.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
-    handoffs: snapshot.handoffs.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    handoffs: snapshot.handoffs.filter((handoff) => isOpenHandoff2(handoff)).slice().sort((left, right) => (right.updatedAt ?? right.timestamp).localeCompare(left.updatedAt ?? left.timestamp)),
     decisions: snapshot.decisions.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
     conventions: snapshot.conventions.slice().sort((left, right) => left.addedAt.localeCompare(right.addedAt)),
     messages: snapshot.messages.slice().sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
@@ -1959,12 +1973,20 @@ async function acknowledgeMessage(rootPath, idOrPrefix) {
   const root = await ensureBridge(rootPath);
   return withBridgeWriteLock(root, async (lockedRoot) => {
     const issues = [];
+    const snapshot = await loadBridgeSnapshot(lockedRoot);
     const { filePath, message } = await readMessage(lockedRoot, idOrPrefix, issues);
+    assertAgentExists(snapshot.bridge, message.toAgentId);
     const updated = messageSchema.parse({
       ...message,
       acknowledged: true
     });
     await writeJsonAtomic2(filePath, updated);
+    if (message.toAgentId) {
+      await createMutationLog(lockedRoot, message.toAgentId, "message-ack", `Acknowledged message from ${message.fromAgentId}`, {
+        messageId: updated.id,
+        fromAgentId: message.fromAgentId
+      });
+    }
     await regenerateContextUnlocked(lockedRoot);
     return updated;
   });
@@ -1973,6 +1995,9 @@ async function listHandoffs(rootPath, filters = {}) {
   const root = await ensureBridge(rootPath);
   const snapshot = await loadBridgeSnapshot(root);
   return snapshot.handoffs.filter((handoff) => {
+    if (!isOpenHandoff2(handoff)) {
+      return false;
+    }
     if (!filters.agentId) {
       return true;
     }
@@ -2000,6 +2025,8 @@ async function createHandoff(rootPath, payload) {
       toAgentId: payload.toAgentId,
       description: payload.description.trim(),
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
       relatedTaskIds: payload.relatedTaskIds?.length ? payload.relatedTaskIds : void 0
     });
     await writeJsonAtomic2(path3.join(paths.handoffsDir, `${handoff.id}.json`), handoff);
@@ -2008,6 +2035,33 @@ async function createHandoff(rootPath, payload) {
     });
     await regenerateContextUnlocked(lockedRoot);
     return handoff;
+  });
+}
+async function updateHandoffStatus(rootPath, idOrPrefix, payload) {
+  const root = await ensureBridge(rootPath);
+  return withBridgeWriteLock(root, async (lockedRoot) => {
+    const issues = [];
+    const { filePath, handoff } = await readHandoff(lockedRoot, idOrPrefix, issues);
+    const snapshot = await loadBridgeSnapshot(lockedRoot);
+    assertAgentExists(snapshot.bridge, payload.agentId);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const updated = handoffSchema.parse({
+      ...handoff,
+      status: payload.status,
+      updatedAt: now,
+      acceptedAt: payload.status === "accepted" ? handoff.acceptedAt ?? now : handoff.acceptedAt,
+      completedAt: payload.status === "completed" ? now : void 0,
+      resolvedByAgentId: payload.status === "completed" ? payload.agentId ?? handoff.resolvedByAgentId : void 0
+    });
+    await writeJsonAtomic2(filePath, updated);
+    if (payload.agentId) {
+      await createMutationLog(lockedRoot, payload.agentId, "handoff-update", `Marked handoff ${payload.status}: ${updated.description}`, {
+        handoffId: updated.id,
+        status: updated.status
+      });
+    }
+    await regenerateContextUnlocked(lockedRoot);
+    return updated;
   });
 }
 async function getStatusSummary(rootPath, accessOptions = {}) {
@@ -2895,6 +2949,12 @@ function parseMessageSeverity(value) {
 function parseDecisionStatus(value) {
   if (!decisionStatuses.includes(value)) {
     throw new BridgeRuntimeError("VALIDATION_ERROR", `Invalid decision status: ${value}`);
+  }
+  return value;
+}
+function parseHandoffStatus(value) {
+  if (!handoffStatuses.includes(value)) {
+    throw new BridgeRuntimeError("VALIDATION_ERROR", `Invalid handoff status: ${value}`);
   }
   return value;
 }
@@ -4809,6 +4869,18 @@ async function handleRequest(request, response, options) {
     });
     return;
   }
+  const handoffMatch = request.method === "PATCH" ? url.pathname.match(/^\/bridge\/handoffs\/([^/]+)$/) : null;
+  if (handoffMatch) {
+    const body = await readJsonBody(request);
+    const { rootPath, runtime } = await resolveRuntime(options, body.source, body.rootPath);
+    const handoff = await updateHandoffStatus(rootPath, handoffMatch[1], {
+      status: parseHandoffStatus(String(body.status ?? "")),
+      agentId: typeof body.agentId === "string" ? body.agentId : void 0
+    });
+    const status = await getStatusSummary(rootPath, resolveAccess(request, options));
+    sendJson(response, 200, withStatusEnvelope(handoff, status, runtime, await computeRevision(rootPath)));
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/bridge/releases") {
     const { rootPath, runtime } = await resolveRuntime(options, url.searchParams.get("source"), url.searchParams.get("root"));
     const releases = await listReleases(rootPath, {
@@ -5211,6 +5283,332 @@ async function startLocalBridgeService(options = {}) {
   });
   return withManagedClose(started, serviceKey);
 }
+async function ensureLocalBridgeService(options = {}) {
+  const serviceKey = buildRunningServiceKey(options);
+  if (!runningServicePromise || runningServiceKey !== serviceKey) {
+    runningServiceKey = serviceKey;
+    runningServicePromise = startLocalBridgeService(options).catch((error2) => {
+      runningServicePromise = null;
+      runningServiceKey = null;
+      throw error2;
+    });
+  }
+  const service = await runningServicePromise;
+  return service;
+}
+
+// aibridge/services/dashboard/server.ts
+import { createServer as createServer2 } from "http";
+import { promises as fs7 } from "fs";
+import path7 from "path";
+import { fileURLToPath as fileURLToPath3 } from "url";
+var DEFAULT_DASHBOARD_HOST = "127.0.0.1";
+var DEFAULT_DASHBOARD_PORT = 8780;
+var DEFAULT_SERVICE_HOST = "127.0.0.1";
+var DEFAULT_SERVICE_PORT = 4545;
+var DASHBOARD_SERVICE_NAME = "aibridge-dashboard";
+var DASHBOARD_SERVICE_API_VERSION = 1;
+var ATTACH_TIMEOUT_MS2 = 1500;
+function normalizeServiceCwd2(cwd) {
+  return path7.resolve(cwd ?? process.cwd());
+}
+function normalizeComparisonPath2(targetPath) {
+  return path7.normalize(targetPath).toLowerCase();
+}
+function dashboardUrl(host, port) {
+  return `http://${host}:${port}/dashboard`;
+}
+function dashboardServiceBaseUrl(host, port) {
+  return `http://${host}:${port}`;
+}
+function isLoopbackAddress(address) {
+  if (!address) {
+    return false;
+  }
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+function contentType(filePath) {
+  const extension = path7.extname(filePath).toLowerCase();
+  switch (extension) {
+    case ".html":
+      return "text/html; charset=utf-8";
+    case ".js":
+      return "application/javascript; charset=utf-8";
+    case ".css":
+      return "text/css; charset=utf-8";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".svg":
+      return "image/svg+xml";
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".woff2":
+      return "font/woff2";
+    case ".woff":
+      return "font/woff";
+    case ".ttf":
+      return "font/ttf";
+    case ".ico":
+      return "image/x-icon";
+    default:
+      return "application/octet-stream";
+  }
+}
+async function fileExists3(filePath) {
+  try {
+    await fs7.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function resolveDashboardAssetRoot() {
+  const moduleDir = path7.dirname(fileURLToPath3(import.meta.url));
+  const argvDir = process.argv[1] ? path7.dirname(path7.resolve(process.argv[1])) : process.cwd();
+  const candidates = [
+    path7.resolve(argvDir, "dashboard-app"),
+    path7.resolve(moduleDir, "../../../dist-cli/dashboard-app"),
+    path7.resolve(moduleDir, "../../../dist/dashboard"),
+    path7.resolve(process.cwd(), "dist")
+  ];
+  for (const candidate of candidates) {
+    if (await fileExists3(path7.join(candidate, "index.html"))) {
+      return candidate;
+    }
+  }
+  throw new BridgeRuntimeError(
+    "BAD_REQUEST",
+    "Dashboard assets are not available. Build the web app first or install a package that includes the dashboard bundle.",
+    { candidates }
+  );
+}
+function createDashboardHealth(cwd, host, port, startedAt, serviceUrl2) {
+  return {
+    ok: true,
+    service: DASHBOARD_SERVICE_NAME,
+    apiVersion: DASHBOARD_SERVICE_API_VERSION,
+    pid: process.pid,
+    cwd,
+    host,
+    port,
+    startedAt,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    url: dashboardUrl(host, port),
+    serviceUrl: serviceUrl2
+  };
+}
+function sendJson2(response, statusCode, payload) {
+  response.statusCode = statusCode;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.end(JSON.stringify(payload));
+}
+async function sendStaticFile(response, filePath) {
+  const body = await fs7.readFile(filePath);
+  response.statusCode = 200;
+  response.setHeader("Content-Type", contentType(filePath));
+  response.end(body);
+}
+async function readAttachedDashboardHealth(host, port) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ATTACH_TIMEOUT_MS2);
+  try {
+    const response = await fetch(`${dashboardServiceBaseUrl(host, port)}/health`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new BridgeRuntimeError("BAD_REQUEST", "Existing dashboard did not respond with health.");
+    }
+    const payload = await response.json();
+    if (!payload?.ok || payload.service !== DASHBOARD_SERVICE_NAME) {
+      throw new BridgeRuntimeError("BAD_REQUEST", "Service on the dashboard port is not an AiBridge dashboard.");
+    }
+    return payload;
+  } catch (error2) {
+    if (error2 instanceof BridgeRuntimeError) {
+      throw error2;
+    }
+    throw new BridgeRuntimeError("BAD_REQUEST", "Unable to connect to the existing dashboard process.", {
+      reason: error2 instanceof Error ? error2.message : String(error2)
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+async function verifyExistingDashboard(host, port, cwd) {
+  const health = await readAttachedDashboardHealth(host, port);
+  if (normalizeComparisonPath2(health.cwd) !== normalizeComparisonPath2(cwd)) {
+    throw new BridgeRuntimeError(
+      "BAD_REQUEST",
+      `Port ${port} is already used by an AiBridge dashboard for a different workspace.`,
+      {
+        expectedCwd: cwd,
+        actualCwd: health.cwd
+      }
+    );
+  }
+  return health;
+}
+async function createDashboardHttpServer(options) {
+  const cwd = normalizeServiceCwd2(options.cwd);
+  const service = await ensureLocalBridgeService({
+    cwd,
+    host: options.serviceHost,
+    port: options.servicePort
+  });
+  const assetRoot = await resolveDashboardAssetRoot();
+  const startedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const health = () => createDashboardHealth(cwd, options.host, options.port, startedAt, service.url);
+  const server = createServer2(async (request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const pathname = decodeURIComponent(url.pathname);
+      if (pathname === "/health") {
+        sendJson2(response, 200, health());
+        return;
+      }
+      if (pathname === "/shutdown") {
+        if (request.method !== "POST") {
+          sendJson2(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        if (!isLoopbackAddress(request.socket.remoteAddress)) {
+          sendJson2(response, 403, { error: "Forbidden" });
+          return;
+        }
+        sendJson2(response, 200, { ok: true });
+        setImmediate(() => {
+          void new Promise((resolve) => {
+            server.close(() => resolve());
+          }).then(() => process.exit(0));
+        });
+        return;
+      }
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        sendJson2(response, 405, { error: "Method not allowed" });
+        return;
+      }
+      const relativePath = pathname === "/" || pathname === "/dashboard" ? "index.html" : pathname.startsWith("/dashboard/") ? pathname.slice("/dashboard/".length) : pathname.startsWith("/") ? pathname.slice(1) : pathname;
+      const candidatePath = path7.resolve(assetRoot, relativePath);
+      const assetRootResolved = path7.resolve(assetRoot);
+      if (!candidatePath.startsWith(assetRootResolved)) {
+        sendJson2(response, 403, { error: "Forbidden" });
+        return;
+      }
+      if (await fileExists3(candidatePath)) {
+        await sendStaticFile(response, candidatePath);
+        return;
+      }
+      await sendStaticFile(response, path7.join(assetRoot, "index.html"));
+    } catch (error2) {
+      sendJson2(response, 500, {
+        error: error2 instanceof Error ? error2.message : "Dashboard request failed."
+      });
+    }
+  });
+  return {
+    server,
+    health,
+    startedAt,
+    service
+  };
+}
+async function startDashboardServer(options = {}) {
+  const host = options.host ?? DEFAULT_DASHBOARD_HOST;
+  const port = options.port ?? DEFAULT_DASHBOARD_PORT;
+  const cwd = normalizeServiceCwd2(options.cwd);
+  const serviceHost = options.serviceHost ?? DEFAULT_SERVICE_HOST;
+  const servicePort = options.servicePort ?? DEFAULT_SERVICE_PORT;
+  try {
+    const existing = await verifyExistingDashboard(host, port, cwd);
+    return {
+      url: existing.url,
+      host,
+      port,
+      cwd,
+      serviceUrl: existing.serviceUrl,
+      startedAt: existing.startedAt,
+      close: async () => {
+        throw new BridgeRuntimeError("BAD_REQUEST", "Attached dashboard process cannot be closed from this handle.");
+      },
+      ownsServer: false,
+      identity: existing
+    };
+  } catch (error2) {
+    if (error2 instanceof BridgeRuntimeError && error2.message.includes("different workspace")) {
+      throw error2;
+    }
+  }
+  const { server, health, startedAt, service } = await createDashboardHttpServer({
+    cwd,
+    host,
+    port,
+    serviceHost,
+    servicePort
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return {
+    url: dashboardUrl(host, port),
+    host,
+    port,
+    cwd,
+    serviceUrl: service.url,
+    startedAt,
+    ownsServer: true,
+    identity: health(),
+    close: async () => {
+      await new Promise((resolve, reject) => {
+        server.close((error2) => {
+          if (error2) {
+            reject(error2);
+            return;
+          }
+          resolve();
+        });
+      });
+      if (service.ownsServer) {
+        await service.close();
+      }
+    }
+  };
+}
+async function stopDashboardServer(host = DEFAULT_DASHBOARD_HOST, port = DEFAULT_DASHBOARD_PORT) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ATTACH_TIMEOUT_MS2);
+  try {
+    const response = await fetch(`${dashboardServiceBaseUrl(host, port)}/shutdown`, {
+      method: "POST",
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new BridgeRuntimeError("BAD_REQUEST", "Unable to stop the dashboard process.");
+    }
+  } catch (error2) {
+    if (error2 instanceof BridgeRuntimeError) {
+      throw error2;
+    }
+    throw new BridgeRuntimeError("BAD_REQUEST", "Unable to reach the dashboard process.", {
+      reason: error2 instanceof Error ? error2.message : String(error2)
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+async function getDashboardHealth(options = {}) {
+  const host = options.host ?? DEFAULT_DASHBOARD_HOST;
+  const port = options.port ?? DEFAULT_DASHBOARD_PORT;
+  const cwd = normalizeServiceCwd2(options.cwd);
+  return verifyExistingDashboard(host, port, cwd);
+}
 
 // aibridge/cli/src/style.ts
 import chalk from "chalk";
@@ -5394,7 +5792,7 @@ function parseTemplateFlag(flags) {
   return flagString(flags, "template");
 }
 function defaultSetupProjectName() {
-  return path7.basename(process.cwd()) || "aibridge-project";
+  return path8.basename(process.cwd()) || "aibridge-project";
 }
 function resolveAgentFlag(flags) {
   return flagString(flags, "from") ?? flagString(flags, "agent") ?? process.env.AIBRIDGE_AGENT?.trim();
@@ -5660,12 +6058,16 @@ function helpText() {
   aibridge convention list [--json]
   aibridge convention sync
   aibridge agent add <agent-id>
-  aibridge agent launch --agent <agent-id> --tool <cursor|codex> [--source <dashboard|app|cli>] [--json]
+  aibridge agent launch --agent <agent-id> --tool <cursor|codex|antigravity> [--source <dashboard|app|cli>] [--json]
   aibridge agent start --session <session-id>
   aibridge agent heartbeat --session <session-id>
   aibridge agent stop --session <session-id> [--reason <text>]
   aibridge agent recover --session <session-id> [--json]
   aibridge agent status [--agent <agent-id>] [--tool <cursor|codex>] [--status <status>] [--json]
+  aibridge dashboard [--host <host>] [--port <port>] [--no-open]
+  aibridge dashboard serve [--host <host>] [--port <port>] [--service-port <port>]
+  aibridge dashboard status [--host <host>] [--port <port>]
+  aibridge dashboard stop [--host <host>] [--port <port>]
   aibridge log add <action> <description> [--from <agent-id>]
   aibridge log list [--agent <agent-id>] [--limit <n>] [--json]
   aibridge capture install-hooks
@@ -5688,19 +6090,101 @@ function helpText() {
   aibridge agent launch --agent cursor --tool cursor
   aibridge agent status
   aibridge capture install-hooks
-  aibridge capture watch --agent cursor`;
-  return headline("CLI") + "\n" + muted("Local workspace engine \xB7 hosted control plane companion \xB7 shared setup flow") + "\n\n" + section("Usage") + "\n" + usage.split("\n").map((line) => commandText(line)).join("\n") + "\n\n" + section("Examples") + "\n" + examples.split("\n").map((line) => commandText(line)).join("\n") + "\n\n" + section("Hints") + "\n" + note("\u2022", `Use ${commandText("aibridge init --interactive")} for guided setup.`) + "\n" + note("\u2022", `Use ${commandText("aibridge setup plan --template web-app")} to preview starter tasks and conventions.`) + "\n" + note("\u2022", `Use ${commandText("aibridge agent launch --agent cursor --tool cursor")} to generate the startup handshake prompt.`) + "\n" + note("\u2022", `Use ${commandText("aibridge serve")} to expose the local bridge to /dashboard.`) + "\n";
+  aibridge capture watch --agent cursor
+  aibridge dashboard`;
+  return headline("CLI") + "\n" + muted("Local workspace engine \xB7 hosted control plane companion \xB7 shared setup flow") + "\n\n" + section("Usage") + "\n" + usage.split("\n").map((line) => commandText(line)).join("\n") + "\n\n" + section("Examples") + "\n" + examples.split("\n").map((line) => commandText(line)).join("\n") + "\n\n" + section("Hints") + "\n" + note("\u2022", `Use ${commandText("aibridge init --interactive")} for guided setup.`) + "\n" + note("\u2022", `Use ${commandText("aibridge setup plan --template web-app")} to preview starter tasks and conventions.`) + "\n" + note("\u2022", `Use ${commandText("aibridge agent launch --agent cursor --tool cursor")} to generate the startup handshake prompt.`) + "\n" + note("\u2022", `Use ${commandText("aibridge dashboard")} to start or attach to the local dashboard in the background.`) + "\n" + note("\u2022", `Use ${commandText("aibridge serve")} to expose the local bridge to /dashboard.`) + "\n";
 }
 async function writeIfNeeded(outputPath, markdown) {
   if (!outputPath) {
     return;
   }
-  const resolved = path7.resolve(process.cwd(), outputPath);
-  await fs7.mkdir(path7.dirname(resolved), { recursive: true });
-  await fs7.writeFile(resolved, markdown, "utf8");
+  const resolved = path8.resolve(process.cwd(), outputPath);
+  await fs8.mkdir(path8.dirname(resolved), { recursive: true });
+  await fs8.writeFile(resolved, markdown, "utf8");
 }
 function bridgeRoot() {
-  return path7.resolve(process.cwd(), ".aibridge");
+  return path8.resolve(process.cwd(), ".aibridge");
+}
+function dashboardHostFlag(flags) {
+  return flagString(flags, "host") ?? "127.0.0.1";
+}
+function dashboardPortFlag(flags) {
+  return parseNumberFlag(flags, "port") ?? 8780;
+}
+function dashboardPortCandidates(flags) {
+  const explicitPort = parseNumberFlag(flags, "port");
+  if (explicitPort) {
+    return [explicitPort];
+  }
+  return Array.from({ length: 8 }, (_, index) => 8780 + index);
+}
+async function openInBrowser(targetUrl) {
+  const platform = process.platform;
+  if (platform === "win32") {
+    const child2 = spawn2("cmd", ["/c", "start", "", targetUrl], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    child2.unref();
+    return;
+  }
+  if (platform === "darwin") {
+    const child2 = spawn2("open", [targetUrl], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child2.unref();
+    return;
+  }
+  const child = spawn2("xdg-open", [targetUrl], {
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+}
+async function waitForDashboardHealth(host, port, attempts = 30) {
+  let lastError;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      return await getDashboardHealth({
+        cwd: process.cwd(),
+        host,
+        port
+      });
+    } catch (error2) {
+      lastError = error2;
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Dashboard did not become ready in time.");
+}
+async function findExistingDashboardForWorkspace(host, ports) {
+  for (const port of ports) {
+    try {
+      return await getDashboardHealth({
+        cwd: process.cwd(),
+        host,
+        port
+      });
+    } catch {
+    }
+  }
+  return null;
+}
+async function launchDetachedDashboard(host, port, servicePort = 4545) {
+  const scriptPath = process.argv[1];
+  if (!scriptPath) {
+    throw new BridgeRuntimeError("BAD_REQUEST", "Unable to determine the current CLI entrypoint for detached dashboard launch.");
+  }
+  const child = spawn2(process.execPath, [scriptPath, "dashboard", "serve", "--host", host, "--port", String(port), "--service-port", String(servicePort)], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+  return waitForDashboardHealth(host, port);
 }
 function renderCreatedEntity(kind, entityId, details) {
   const lines = [successLine(`${kind} ready`), kv("ID           ", entityId)];
@@ -5712,7 +6196,7 @@ function renderCreatedEntity(kind, entityId, details) {
   return `${lines.join("\n")}
 `;
 }
-var CLI_VERSION = true ? "0.1.13" : "0.0.0";
+var CLI_VERSION = true ? "0.1.14" : "0.0.0";
 var VERSION_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1e3;
 function parseSemver(value) {
   const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
@@ -5744,12 +6228,12 @@ async function maybeWarnAboutNewVersion(io, flags) {
     return;
   }
   try {
-    const cacheDir = path7.join(os2.homedir(), ".aibridge");
-    const cacheFile = path7.join(cacheDir, "version-check.json");
+    const cacheDir = path8.join(os2.homedir(), ".aibridge");
+    const cacheFile = path8.join(cacheDir, "version-check.json");
     const now = Date.now();
     let cached;
     try {
-      const raw = await fs7.readFile(cacheFile, "utf8");
+      const raw = await fs8.readFile(cacheFile, "utf8");
       cached = JSON.parse(raw);
     } catch {
       cached = void 0;
@@ -5785,8 +6269,8 @@ async function maybeWarnAboutNewVersion(io, flags) {
     if (!latest) {
       return;
     }
-    await fs7.mkdir(cacheDir, { recursive: true });
-    await fs7.writeFile(cacheFile, JSON.stringify({ checkedAt: now, latest }, null, 2), "utf8");
+    await fs8.mkdir(cacheDir, { recursive: true });
+    await fs8.writeFile(cacheFile, JSON.stringify({ checkedAt: now, latest }, null, 2), "utf8");
     if (isSemverNewer(latest, CLI_VERSION)) {
       io.stderr(
         `${warning("Update available:")} ${dim(CLI_VERSION)} ${dim("->")} ${success(latest)} ${dim(
@@ -6193,6 +6677,108 @@ async function runCli(rawArgs, io) {
         return 0;
       }
       throw new BridgeRuntimeError("BAD_REQUEST", "Unknown agent subcommand.");
+    }
+    case "dashboard": {
+      const normalizedSubcommand = subcommand ?? "open";
+      const host = dashboardHostFlag(flags);
+      const port = dashboardPortFlag(flags);
+      const portCandidates = dashboardPortCandidates(flags);
+      const servicePort = parseNumberFlag(flags, "service-port") ?? 4545;
+      if (normalizedSubcommand === "open") {
+        let health = await findExistingDashboardForWorkspace(host, portCandidates);
+        if (health) {
+          io.stdout(`${infoLine(`AiBridge dashboard already running at ${health.url}`)}
+`);
+        } else {
+          let launched = false;
+          let lastError;
+          for (const candidatePort of portCandidates) {
+            try {
+              health = await launchDetachedDashboard(host, candidatePort, servicePort);
+              io.stdout(`${successLine(`AiBridge dashboard started in the background at ${health.url}`)}
+`);
+              launched = true;
+              break;
+            } catch (error2) {
+              lastError = error2;
+            }
+          }
+          if (!launched || !health) {
+            throw lastError instanceof Error ? lastError : new Error("Unable to start the dashboard in the background.");
+          }
+        }
+        if (!flagBoolean(flags, "no-open")) {
+          await openInBrowser(health.url);
+          io.stdout(`${dim(`Opened ${health.url} in your browser.`)}
+`);
+        }
+        return 0;
+      }
+      if (normalizedSubcommand === "serve") {
+        const dashboard = await startDashboardServer({
+          cwd: process.cwd(),
+          host,
+          port,
+          servicePort
+        });
+        io.stdout(
+          `${successLine(
+            dashboard.ownsServer ? `AiBridge dashboard serving at ${dashboard.url}` : `AiBridge dashboard already running at ${dashboard.url} for ${dashboard.identity.cwd}`
+          )}
+`
+        );
+        if (!dashboard.ownsServer) {
+          return 0;
+        }
+        await new Promise((resolve) => {
+          const shutdown = async () => {
+            process.off("SIGINT", onSigint);
+            process.off("SIGTERM", onSigterm);
+            await dashboard.close();
+            resolve();
+          };
+          const onSigint = () => {
+            void shutdown();
+          };
+          const onSigterm = () => {
+            void shutdown();
+          };
+          process.on("SIGINT", onSigint);
+          process.on("SIGTERM", onSigterm);
+        });
+        return 0;
+      }
+      if (normalizedSubcommand === "status") {
+        const health = await findExistingDashboardForWorkspace(host, portCandidates);
+        if (!health) {
+          throw new BridgeRuntimeError("BAD_REQUEST", "No AiBridge dashboard is running for this workspace.");
+        }
+        io.stdout(
+          panel(
+            "Dashboard Status",
+            [
+              kv("URL          ", health.url),
+              kv("Host         ", health.host),
+              kv("Port         ", String(health.port)),
+              kv("Workspace    ", health.cwd),
+              kv("Service URL  ", health.serviceUrl),
+              kv("Started      ", health.startedAt)
+            ].join("\n")
+          )
+        );
+        return 0;
+      }
+      if (normalizedSubcommand === "stop") {
+        const health = await findExistingDashboardForWorkspace(host, portCandidates);
+        if (!health) {
+          throw new BridgeRuntimeError("BAD_REQUEST", "No AiBridge dashboard is running for this workspace.");
+        }
+        await stopDashboardServer(host, health.port);
+        io.stdout(`${successLine(`Stopped dashboard on ${host}:${health.port}`)}
+`);
+        return 0;
+      }
+      throw new BridgeRuntimeError("BAD_REQUEST", "Unknown dashboard subcommand.");
     }
     case "log": {
       const normalizedSubcommand = !subcommand || ["add", "list"].includes(subcommand) ? subcommand ?? "list" : "add";

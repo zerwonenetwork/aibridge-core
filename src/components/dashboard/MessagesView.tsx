@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AibridgeMessage, AibridgeAgent } from "@/lib/aibridge/types";
 import { getAgentColor } from "@/lib/aibridge/agent-colors";
@@ -13,6 +14,12 @@ interface MessagesViewProps {
   messages: AibridgeMessage[];
   agents: AibridgeAgent[];
   onAcknowledge?: (messageId: string) => void;
+  onCreateMessage?: (payload: {
+    fromAgentId: string;
+    toAgentId?: string;
+    severity?: AibridgeMessage["severity"];
+    content: string;
+  }) => Promise<unknown>;
 }
 
 const severityConfig = {
@@ -26,9 +33,13 @@ const item = {
   show: { opacity: 1, y: 0 },
 };
 
-export function MessagesView({ messages, agents, onAcknowledge }: MessagesViewProps) {
+export function MessagesView({ messages, agents, onAcknowledge, onCreateMessage }: MessagesViewProps) {
   const [agentFilter, setAgentFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
+  const [fromAgentId, setFromAgentId] = useState(agents[0]?.id ?? "");
+  const [toAgentId, setToAgentId] = useState("broadcast");
+  const [composeSeverity, setComposeSeverity] = useState<AibridgeMessage["severity"]>("info");
+  const [draft, setDraft] = useState("");
 
   const filtered = useMemo(() => {
     return messages.filter(m => {
@@ -63,6 +74,54 @@ export function MessagesView({ messages, agents, onAcknowledge }: MessagesViewPr
           </Select>
         </div>
       </div>
+
+      {onCreateMessage ? (
+        <Card className="bg-card border-border">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[140px_140px_120px_minmax(0,1fr)_auto]">
+              <Select value={fromAgentId} onValueChange={setFromAgentId}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="From" /></SelectTrigger>
+                <SelectContent>
+                  {agents.map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={toAgentId} onValueChange={setToAgentId}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="To" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="broadcast">Broadcast</SelectItem>
+                  {agents.map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={composeSeverity} onValueChange={(value) => setComposeSeverity(value as AibridgeMessage["severity"])}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Severity" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="info">Info</SelectItem>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Send a coordination note without using the terminal." className="h-9 text-sm" />
+              <Button
+                className="h-9"
+                disabled={!fromAgentId || !draft.trim()}
+                onClick={() => {
+                  const content = draft.trim();
+                  if (!content) return;
+                  void onCreateMessage({
+                    fromAgentId,
+                    toAgentId: toAgentId === "broadcast" ? undefined : toAgentId,
+                    severity: composeSeverity,
+                    content,
+                  });
+                  setDraft("");
+                }}
+              >
+                Send
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <motion.div
         className="space-y-2"

@@ -5,8 +5,12 @@ import type {
   AibridgeAgentToolCapability,
   AibridgeAgentToolKind,
   AibridgeAnnouncement,
+  AibridgeDecision,
+  AibridgeHandoff,
   AibridgeLocalEvent,
   AibridgeLocalSource,
+  AibridgeLogEntry,
+  AibridgeMessage,
   AibridgeProtocolIssue,
   AibridgeRelease,
   AibridgeRuntimeState,
@@ -156,6 +160,98 @@ export async function acknowledgeLocalMessage(options: LocalBridgeRequestOptions
     body: JSON.stringify({
       source: options.source,
       rootPath: options.rootPath,
+    }),
+  });
+}
+
+export async function createLocalMessage(
+  options: LocalBridgeRequestOptions,
+  payload: { fromAgentId: string; toAgentId?: string; severity?: AibridgeMessage["severity"]; content: string },
+) {
+  return requestLocalBridge<AibridgeMessage>(buildServiceUrl("/bridge/messages"), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+      ...payload,
+    }),
+  });
+}
+
+export async function createLocalHandoff(
+  options: LocalBridgeRequestOptions,
+  payload: { fromAgentId: string; toAgentId: string; description: string; relatedTaskIds?: string[] },
+) {
+  return requestLocalBridge<AibridgeHandoff>(buildServiceUrl("/bridge/handoffs"), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+      ...payload,
+    }),
+  });
+}
+
+export async function updateLocalHandoff(
+  options: LocalBridgeRequestOptions,
+  handoffId: string,
+  payload: { status: AibridgeHandoff["status"]; agentId?: string },
+) {
+  return requestLocalBridge<AibridgeHandoff>(buildServiceUrl(`/bridge/handoffs/${handoffId}`), {
+    method: "PATCH",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+      ...payload,
+    }),
+  });
+}
+
+export async function createLocalDecision(
+  options: LocalBridgeRequestOptions,
+  payload: { title: string; summary: string; status?: AibridgeDecision["status"]; agentId?: string },
+) {
+  return requestLocalBridge<AibridgeDecision>(buildServiceUrl("/bridge/decisions"), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+      ...payload,
+    }),
+  });
+}
+
+export async function updateLocalDecision(
+  options: LocalBridgeRequestOptions,
+  decisionId: string,
+  payload: { status: NonNullable<AibridgeDecision["status"]>; agentId?: string },
+) {
+  return requestLocalBridge<AibridgeDecision>(buildServiceUrl(`/bridge/decisions/${decisionId}`), {
+    method: "PATCH",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+      ...payload,
+    }),
+  });
+}
+
+export async function createLocalLog(
+  options: LocalBridgeRequestOptions,
+  payload: { agentId: string; action: string; description: string; metadata?: Record<string, unknown> },
+) {
+  return requestLocalBridge<AibridgeLogEntry>(buildServiceUrl("/bridge/logs"), {
+    method: "POST",
+    headers: buildRequestHeaders(options, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      source: options.source,
+      rootPath: options.rootPath,
+      ...payload,
     }),
   });
 }

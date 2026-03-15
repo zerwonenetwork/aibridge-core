@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -42,6 +43,7 @@ import {
   updateTask,
 } from "../../runtime/store";
 import { startLocalBridgeService } from "../../services/local/service";
+import { getDashboardHealth, startDashboardServer, stopDashboardServer } from "../../services/dashboard/server";
 import {
   getCaptureStatus,
   handleCaptureHook,
@@ -485,12 +487,16 @@ function helpText() {
   aibridge convention list [--json]
   aibridge convention sync
   aibridge agent add <agent-id>
-  aibridge agent launch --agent <agent-id> --tool <cursor|codex> [--source <dashboard|app|cli>] [--json]
+  aibridge agent launch --agent <agent-id> --tool <cursor|codex|antigravity> [--source <dashboard|app|cli>] [--json]
   aibridge agent start --session <session-id>
   aibridge agent heartbeat --session <session-id>
   aibridge agent stop --session <session-id> [--reason <text>]
   aibridge agent recover --session <session-id> [--json]
   aibridge agent status [--agent <agent-id>] [--tool <cursor|codex>] [--status <status>] [--json]
+  aibridge dashboard [--host <host>] [--port <port>] [--no-open]
+  aibridge dashboard serve [--host <host>] [--port <port>] [--service-port <port>]
+  aibridge dashboard status [--host <host>] [--port <port>]
+  aibridge dashboard stop [--host <host>] [--port <port>]
   aibridge log add <action> <description> [--from <agent-id>]
   aibridge log list [--agent <agent-id>] [--limit <n>] [--json]
   aibridge capture install-hooks
@@ -513,7 +519,8 @@ function helpText() {
   aibridge agent launch --agent cursor --tool cursor
   aibridge agent status
   aibridge capture install-hooks
-  aibridge capture watch --agent cursor`;
+  aibridge capture watch --agent cursor
+  aibridge dashboard`;
   return (
     headline("CLI") +
     "\n" +
@@ -535,6 +542,8 @@ function helpText() {
     "\n" +
     note("•", `Use ${commandText("aibridge agent launch --agent cursor --tool cursor")} to generate the startup handshake prompt.`) +
     "\n" +
+    note("•", `Use ${commandText("aibridge dashboard")} to start or attach to the local dashboard in the background.`) +
+    "\n" +
     note("•", `Use ${commandText("aibridge serve")} to expose the local bridge to /dashboard.`) +
     "\n"
   );
@@ -552,6 +561,103 @@ async function writeIfNeeded(outputPath: string | undefined, markdown: string) {
 
 function bridgeRoot() {
   return path.resolve(process.cwd(), ".aibridge");
+}
+
+function dashboardHostFlag(flags: ParsedArgs["flags"]) {
+  return flagString(flags, "host") ?? "127.0.0.1";
+}
+
+function dashboardPortFlag(flags: ParsedArgs["flags"]) {
+  return parseNumberFlag(flags, "port") ?? 8780;
+}
+
+function dashboardPortCandidates(flags: ParsedArgs["flags"]) {
+  const explicitPort = parseNumberFlag(flags, "port");
+  if (explicitPort) {
+    return [explicitPort];
+  }
+
+  return Array.from({ length: 8 }, (_, index) => 8780 + index);
+}
+
+async function openInBrowser(targetUrl: string) {
+  const platform = process.platform;
+
+  if (platform === "win32") {
+    const child = spawn("cmd", ["/c", "start", "", targetUrl], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    return;
+  }
+
+  if (platform === "darwin") {
+    const child = spawn("open", [targetUrl], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    return;
+  }
+
+  const child = spawn("xdg-open", [targetUrl], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+}
+
+async function waitForDashboardHealth(host: string, port: number, attempts = 30) {
+  let lastError: unknown;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      return await getDashboardHealth({
+        cwd: process.cwd(),
+        host,
+        port,
+      });
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Dashboard did not become ready in time.");
+}
+
+async function findExistingDashboardForWorkspace(host: string, ports: number[]) {
+  for (const port of ports) {
+    try {
+      return await getDashboardHealth({
+        cwd: process.cwd(),
+        host,
+        port,
+      });
+    } catch {
+      // Continue scanning candidate ports.
+    }
+  }
+
+  return null;
+}
+
+async function launchDetachedDashboard(host: string, port: number, servicePort = 4545) {
+  const scriptPath = process.argv[1];
+  if (!scriptPath) {
+    throw new BridgeRuntimeError("BAD_REQUEST", "Unable to determine the current CLI entrypoint for detached dashboard launch.");
+  }
+
+  const child = spawn(process.execPath, [scriptPath, "dashboard", "serve", "--host", host, "--port", String(port), "--service-port", String(servicePort)], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.unref();
+
+  return waitForDashboardHealth(host, port);
 }
 
 function renderCreatedEntity(kind: string, entityId: string, details: Array<[string, string | undefined]>) {
@@ -1106,6 +1212,122 @@ export async function runCli(rawArgs: string[], io: { stdout: (text: string) => 
       }
 
       throw new BridgeRuntimeError("BAD_REQUEST", "Unknown agent subcommand.");
+    }
+
+    case "dashboard": {
+      const normalizedSubcommand = subcommand ?? "open";
+      const host = dashboardHostFlag(flags);
+      const port = dashboardPortFlag(flags);
+      const portCandidates = dashboardPortCandidates(flags);
+      const servicePort = parseNumberFlag(flags, "service-port") ?? 4545;
+
+      if (normalizedSubcommand === "open") {
+        let health = await findExistingDashboardForWorkspace(host, portCandidates);
+        if (health) {
+          io.stdout(`${infoLine(`AiBridge dashboard already running at ${health.url}`)}\n`);
+        } else {
+          let launched = false;
+          let lastError: unknown;
+          for (const candidatePort of portCandidates) {
+            try {
+              health = await launchDetachedDashboard(host, candidatePort, servicePort);
+              io.stdout(`${successLine(`AiBridge dashboard started in the background at ${health.url}`)}\n`);
+              launched = true;
+              break;
+            } catch (error) {
+              lastError = error;
+            }
+          }
+
+          if (!launched || !health) {
+            throw lastError instanceof Error ? lastError : new Error("Unable to start the dashboard in the background.");
+          }
+        }
+
+        if (!flagBoolean(flags, "no-open")) {
+          await openInBrowser(health.url);
+          io.stdout(`${dim(`Opened ${health.url} in your browser.`)}\n`);
+        }
+
+        return 0;
+      }
+
+      if (normalizedSubcommand === "serve") {
+        const dashboard = await startDashboardServer({
+          cwd: process.cwd(),
+          host,
+          port,
+          servicePort,
+        });
+
+        io.stdout(
+          `${successLine(
+            dashboard.ownsServer
+              ? `AiBridge dashboard serving at ${dashboard.url}`
+              : `AiBridge dashboard already running at ${dashboard.url} for ${dashboard.identity.cwd}`,
+          )}\n`,
+        );
+
+        if (!dashboard.ownsServer) {
+          return 0;
+        }
+
+        await new Promise<void>((resolve) => {
+          const shutdown = async () => {
+            process.off("SIGINT", onSigint);
+            process.off("SIGTERM", onSigterm);
+            await dashboard.close();
+            resolve();
+          };
+
+          const onSigint = () => {
+            void shutdown();
+          };
+          const onSigterm = () => {
+            void shutdown();
+          };
+
+          process.on("SIGINT", onSigint);
+          process.on("SIGTERM", onSigterm);
+        });
+
+        return 0;
+      }
+
+      if (normalizedSubcommand === "status") {
+        const health = await findExistingDashboardForWorkspace(host, portCandidates);
+        if (!health) {
+          throw new BridgeRuntimeError("BAD_REQUEST", "No AiBridge dashboard is running for this workspace.");
+        }
+
+        io.stdout(
+          panel(
+            "Dashboard Status",
+            [
+              kv("URL          ", health.url),
+              kv("Host         ", health.host),
+              kv("Port         ", String(health.port)),
+              kv("Workspace    ", health.cwd),
+              kv("Service URL  ", health.serviceUrl),
+              kv("Started      ", health.startedAt),
+            ].join("\n"),
+          ),
+        );
+        return 0;
+      }
+
+      if (normalizedSubcommand === "stop") {
+        const health = await findExistingDashboardForWorkspace(host, portCandidates);
+        if (!health) {
+          throw new BridgeRuntimeError("BAD_REQUEST", "No AiBridge dashboard is running for this workspace.");
+        }
+
+        await stopDashboardServer(host, health.port);
+        io.stdout(`${successLine(`Stopped dashboard on ${host}:${health.port}`)}\n`);
+        return 0;
+      }
+
+      throw new BridgeRuntimeError("BAD_REQUEST", "Unknown dashboard subcommand.");
     }
 
     case "log": {

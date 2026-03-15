@@ -2,18 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.1.13 — 2026-03-15
+## 0.1.14 — 2026-03-15
 
 ### Added
 - **Concrete agent adapters** — AiBridge now models `cursor`, `antigravity`, and `codex` through a shared adapter layer with explicit launch modes, dispatch status, attached context files, and command previews.
 - **UI-first launch and recovery dispatch** — the local dashboard can now show dispatch-ready launch/recovery actions instead of only raw prompt text.
 - **Protocol issue workflow** — invalid hand-written `.aibridge/*.json` files are surfaced as structured protocol issues with cleanup and repair-prompt endpoints.
 - **Prompt artifacts** — launch and recovery prompts are now written to `.aibridge/prompts/` for inspection and future tool execution paths.
+- **Inbox-first operator controls** — the dashboard now exposes message acknowledgement, handoff accept/resolve actions, inline decision recording, operator logs, and context regeneration without requiring terminal use.
+- **Packaged dashboard launcher** — `aibridge dashboard` now starts or attaches to a background dashboard process, ensures the local service is running, and opens the browser for the current workspace.
 
 ### Changed
 - **Agent Launch Center** now distinguishes prompt-copy, Antigravity UI dispatch, and Codex non-chat execution paths.
 - **Status payloads** now include adapter capabilities and structured protocol issues so the UI can guide humans without dropping to CLI-first troubleshooting.
 - **Recovery flow** now carries tool-specific attach-file hints and command previews.
+- **Open handoffs** now have an explicit lifecycle (`open`, `accepted`, `completed`) that is reflected in runtime state and dashboard actions.
+- **Dashboard ownership** is more explicit: humans operate primarily from `/dashboard`, while agents still use the CLI/runtime as the canonical mutation layer.
+
+### Fixed
+- **Stale-session noise** — context-change staleness now waits through a short grace window before marking a session stale during normal coordination bursts.
+- **Context/session drift** — context generation now derives session health from the same runtime rules used by status so the dashboard and generated context stay aligned more often.
+- **Human repair fallback** — when an agent fails to complete coordination state, operators can now finish recovery from the dashboard instead of dropping to raw CLI commands.
+- **Packaged asset delivery** — the npm package now includes the built dashboard bundle so the packaged launcher can serve the UI directly.
 
 ## 0.1.12 — 2026-03-14
 
